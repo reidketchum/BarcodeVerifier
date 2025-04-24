@@ -135,10 +135,19 @@ export default function Home() {
 
     console.log(`[MQTT] Attempting to connect to ${mqttBroker}:${mqttPort} using MQTT protocol`); // Log before connect
 
+    // Validate port before connecting
+    const parsedPort = parseInt(mqttPort, 10);
+    if (isNaN(parsedPort)) {
+        console.error("[MQTT] Invalid port number:", mqttPort);
+        setMqttStatus('Error');
+        setMqttErrorMessage('Invalid port number');
+        return; // Stop connection attempt
+    }
+
     // Initialize MQTT client in the browser environment, specifying the protocol
     mqttClientRef.current = mqtt.connect({
         host: mqttBroker,
-        port: parseInt(mqttPort, 10), // Parse port back to number
+        port: parsedPort, // Use parsed port
         clientId: mqttClientId,
         protocol: 'mqtt' // Explicitly set the protocol to MQTT TCP
         // Add other options like username, password if needed later
@@ -269,7 +278,13 @@ export default function Home() {
                  {mqttStatus === 'Disconnected' && mqttErrorMessage && (
                   <p className="text-destructive text-sm mt-1">Reason: {mqttErrorMessage}</p>
                 )}
-             </div>
+              {mqttStatus === 'Disconnected' && mqttErrorMessage === null && (
+                  <p className="text-gray-500 text-sm mt-1">Attempting connection...</p>
+              )}
+              <p className="text-sm text-gray-500 mt-1">For browser clients, a WebSocket listener on the broker is often required.</p>
+
+
+          </div>
         </CardContent>
 
         <Separator />
