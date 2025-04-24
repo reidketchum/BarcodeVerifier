@@ -1,3 +1,5 @@
+console.log("page.tsx file loaded");
+
 "use client";
 
 import { useState, useEffect } from "react";
