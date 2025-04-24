@@ -6,7 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import mqtt from "mqtt/dist/mqtt";
+import mqtt from "mqtt";
 
 // MQTT Configuration
 const MQTT_BROKER = "192.168.5.5";
