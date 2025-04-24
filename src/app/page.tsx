@@ -9,11 +9,11 @@ import { Label } from "@/components/ui/label";
 import mqtt from "mqtt";
 import { MqttClient } from "mqtt"; // Import MqttClient type for useRef
 
-// MQTT Configuration
-const MQTT_BROKER = "192.168.5.5";
-const MQTT_PORT = 1883;
-const MQTT_TOPIC = "Tekpak/F6/BarcodeVerifier";
-const MQTT_CLIENT_ID = "BarcodeVerifier";
+// Initial MQTT Configuration (can be overridden in UI)
+const INITIAL_MQTT_BROKER = "192.168.5.5";
+const INITIAL_MQTT_PORT = 1883;
+const INITIAL_MQTT_TOPIC = "Tekpak/F6/BarcodeVerifier";
+const INITIAL_MQTT_CLIENT_ID = "BarcodeVerifier";
 
 const simulateGPIODetection = (): boolean => {  
     // Simulate case detected by sensor
@@ -43,11 +43,11 @@ function isValidGTIN(barcode: string): boolean {
   return /^\d{12,14}$/.test(barcode);
 }
 
-// publishResult now accepts the client instance
-const publishResult = (client: MqttClient | null, result: "PASS" | "FAIL") => {
+// publishResult now accepts the client instance and topic
+const publishResult = (client: MqttClient | null, topic: string, result: "PASS" | "FAIL") => {
     if (client && client.connected) {
-        console.log(`[MQTT] Result before publishing: ${result}`); // Log the result right before publishing
-        client.publish(MQTT_TOPIC, result, (err) => {
+        console.log(`[MQTT] Result before publishing: ${result} to topic ${topic}`); // Log the result right before publishing
+        client.publish(topic, result, (err) => {
             if (err) {
                 console.error(`[MQTT] Publish Error: ${err.message || err}`);
             }
@@ -57,7 +57,7 @@ const publishResult = (client: MqttClient | null, result: "PASS" | "FAIL") => {
     }
 };
 
-export default function Home() {
+export default function Home() { 
   const [testMode, setTestMode] = useState(false);
   const [rejectDelay, setRejectDelay] = useState(3000); // milliseconds
   const [barcode, setBarcode] = useState<string | null>(null);
@@ -67,6 +67,11 @@ export default function Home() {
   const [rejectOutputState, setRejectOutputState] = useState<'Inactive' | 'Active'>('Inactive'); // New state for reject output
   const [mqttErrorMessage, setMqttErrorMessage] = useState<string | null>(null); // New state for MQTT error message
 
+  // State for MQTT Configuration
+  const [mqttBroker, setMqttBroker] = useState(INITIAL_MQTT_BROKER);
+  const [mqttPort, setMqttPort] = useState(INITIAL_MQTT_PORT.toString()); // Store as string for input
+  const [mqttTopic, setMqttTopic] = useState(INITIAL_MQTT_TOPIC);
+  const [mqttClientId, setMqttClientId] = useState(INITIAL_MQTT_CLIENT_ID);
 
   // Ref to hold the MQTT client instance
   const mqttClientRef = useRef<MqttClient | null>(null);
@@ -81,7 +86,7 @@ export default function Home() {
     }
   };
 
-  // handleScan now calls publishResult with the current client instance and updates reject output state
+  // handleScan now calls publishResult with the current client instance, topic and updates reject output state
   const handleScan = (scannedBarcode: string) => {
     if (!scannedBarcode) {
       return; // Do not run if the code is empty
@@ -91,7 +96,7 @@ export default function Home() {
     const isValid = isValidGTIN(scannedBarcode);
     const currentResult: "PASS" | "FAIL" = isValid ? "PASS" : "FAIL";
     setResult(currentResult);
-    publishResult(mqttClientRef.current, currentResult); // Pass client instance
+    publishResult(mqttClientRef.current, mqttTopic, currentResult); // Pass client instance and topic
     if (!isValid) {
       triggerGPIOOutput(setRejectOutputState, true); // Pass setter to update state
     }
@@ -121,12 +126,21 @@ export default function Home() {
     setMqttStatus('Connecting...'); // Set status to connecting on mount
     setMqttErrorMessage(null); // Clear previous errors
 
-    console.log(`[MQTT] Attempting to connect to ${MQTT_BROKER}:${MQTT_PORT}`); // Log before connect
+    // Clean up previous client if it exists
+    if (mqttClientRef.current) {
+        console.log("[MQTT] Disconnecting previous client...");
+        mqttClientRef.current.end();
+        mqttClientRef.current = null; // Clear the ref
+    }
+
+    console.log(`[MQTT] Attempting to connect to ${mqttBroker}:${mqttPort}`); // Log before connect
+
     // Initialize MQTT client in the browser environment
     mqttClientRef.current = mqtt.connect({
-        host: MQTT_BROKER,
-        port: MQTT_PORT,
-        clientId: MQTT_CLIENT_ID,
+        host: mqttBroker,
+        port: parseInt(mqttPort, 10), // Parse port back to number
+        clientId: mqttClientId,
+        // Add other options like protocol, username, password if needed later
     });
     console.log("[MQTT] Client Ref after connect:", mqttClientRef.current); // Log ref value
 
@@ -147,21 +161,32 @@ export default function Home() {
         console.log("[MQTT] Client Disconnected. Had Error:", hadError);
         setMqttStatus('Disconnected');
          if (hadError) {
-            setMqttErrorMessage('Disconnected due to error');
+            // Try to get a more specific reason if available (library dependent)
+             setMqttErrorMessage('Disconnected due to error');
          }
     });
+    
+    // Add offline event listener
+    mqttClientRef.current.on("offline", () => {
+        console.log("[MQTT] Client Offline");
+        setMqttStatus('Disconnected'); // Or a specific 'Offline' status
+        setMqttErrorMessage('Client is offline');
+    });
+
 
     window.addEventListener("keypress", handleKeyPress);
 
     // Cleanup function to disconnect MQTT client and remove listener
     return () => {
+      console.log("[MQTT] Running cleanup for MQTT and keypress");
       window.removeEventListener("keypress", handleKeyPress);
       if (mqttClientRef.current) {
         mqttClientRef.current.end();
+        mqttClientRef.current = null; // Clear the ref on cleanup
         console.log("[MQTT] Client Disconnected (cleanup)");
       }
     };
-  }, []); // Empty dependency array ensures this runs only once on mount
+  }, [mqttBroker, mqttPort, mqttTopic, mqttClientId]); // Re-run effect if config changes
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen py-2">
@@ -191,6 +216,63 @@ export default function Home() {
         </CardContent>
         
         <Separator />
+
+        <CardHeader>
+           <h3 className="text-md font-semibold">MQTT Settings</h3>
+        </CardHeader>
+
+        <CardContent className="grid gap-4">
+             <div className="grid gap-2">
+                <Label htmlFor="mqtt-broker">Broker Address</Label>
+                <Input
+                  id="mqtt-broker"
+                  type="text"
+                  value={mqttBroker}
+                  onChange={(e) => setMqttBroker(e.target.value)}
+                />
+             </div>
+             <div className="grid gap-2">
+                <Label htmlFor="mqtt-port">Broker Port</Label>
+                <Input
+                  id="mqtt-port"
+                  type="number"
+                  value={mqttPort}
+                  onChange={(e) => setMqttPort(e.target.value)}
+                />
+             </div>
+              <div className="grid gap-2">
+                <Label htmlFor="mqtt-topic">Publish Topic</Label>
+                <Input
+                  id="mqtt-topic"
+                  type="text"
+                  value={mqttTopic}
+                  onChange={(e) => setMqttTopic(e.target.value)}
+                />
+             </div>
+              <div className="grid gap-2">
+                <Label htmlFor="mqtt-client-id">Client ID</Label>
+                <Input
+                  id="mqtt-client-id"
+                  type="text"
+                  value={mqttClientId}
+                  onChange={(e) => setMqttClientId(e.target.value)}
+                />
+             </div>
+             {/* Display MQTT Status and Error */}
+              <div className="grid gap-2">
+                <Label>MQTT Status:</Label>
+                <p>{mqttStatus}</p>
+                {mqttStatus === 'Error' && mqttErrorMessage && (
+                  <p className="text-destructive text-sm mt-1">Error: {mqttErrorMessage}</p>
+                )}
+                 {mqttStatus === 'Disconnected' && mqttErrorMessage && (
+                  <p className="text-destructive text-sm mt-1">Reason: {mqttErrorMessage}</p>
+                )}
+             </div>
+        </CardContent>
+
+        <Separator />
+
         <CardContent className="grid gap-4">
           <div className="grid gap-2">
             <Label>Product Sensor GPIO:</Label>
@@ -199,17 +281,6 @@ export default function Home() {
           <div className="grid gap-2">
             <Label>Reject Output GPIO:</Label>
             <p>GPIO 27 (Placeholder) - State: {rejectOutputState}</p>{/* Display Reject Output State */}
-          </div>
-          {/* Display MQTT Status and Error */}
-          <div className="grid gap-2">
-            <Label>MQTT Status:</Label>
-            <p>{mqttStatus}</p>
-            {mqttStatus === 'Error' && mqttErrorMessage && (
-              <p className="text-destructive text-sm mt-1">Error: {mqttErrorMessage}</p>
-            )}
-             {mqttStatus === 'Disconnected' && mqttErrorMessage && (
-              <p className="text-destructive text-sm mt-1">Reason: {mqttErrorMessage}</p>
-            )}
           </div>
         </CardContent>
         <Separator />
