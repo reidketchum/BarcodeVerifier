@@ -133,14 +133,15 @@ export default function Home() {
         mqttClientRef.current = null; // Clear the ref
     }
 
-    console.log(`[MQTT] Attempting to connect to ${mqttBroker}:${mqttPort}`); // Log before connect
+    console.log(`[MQTT] Attempting to connect to ${mqttBroker}:${mqttPort} using MQTT protocol`); // Log before connect
 
-    // Initialize MQTT client in the browser environment
+    // Initialize MQTT client in the browser environment, specifying the protocol
     mqttClientRef.current = mqtt.connect({
         host: mqttBroker,
         port: parseInt(mqttPort, 10), // Parse port back to number
         clientId: mqttClientId,
-        // Add other options like protocol, username, password if needed later
+        protocol: 'mqtt' // Explicitly set the protocol to MQTT TCP
+        // Add other options like username, password if needed later
     });
     console.log("[MQTT] Client Ref after connect:", mqttClientRef.current); // Log ref value
 
