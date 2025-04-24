@@ -87,7 +87,7 @@ export default function Home() {
   // Effect for case detection simulation
   useEffect(() => {
     const caseDetectionInterval = setInterval(() => {
-      if (testMode || simulateGPIODetection()) {
+      if (testMode) { // Removed || simulateGPIODetection()
         setCaseDetected(true);
         //handleScan(); // Simulate barcode scan on case detection
       } else {
