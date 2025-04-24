@@ -1,14 +1,25 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect } from "react";
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import mqtt from "mqtt/dist/mqtt";
 
-// Dummy GPIO pin control functions (replace with actual hardware interaction)
+// MQTT Configuration
+const MQTT_BROKER = "192.168.5.5";
+const MQTT_PORT = 1883;
+const MQTT_TOPIC = "Tekpak/F6/BarcodeVerifier";
+const MQTT_CLIENT_ID = "BarcodeVerifier";
+
+// Initialize MQTT Client
+const client = mqtt.connect({
+  host: MQTT_BROKER,
+  port: MQTT_PORT,
+  clientId: MQTT_CLIENT_ID,
+});
 const simulateGPIODetection = (): boolean => {
     // Simulate case detected by sensor
     return Math.random() > 0.5; 
@@ -26,6 +37,17 @@ function isValidGTIN(barcode: string): boolean {
   return /^\d{12,14}$/.test(barcode);
 }
 
+const publishResult = (result: "PASS" | "FAIL") => {
+  if (client.connected) {
+    client.publish(MQTT_TOPIC, result, (err) => {
+      if (err) {
+        console.error("MQTT Publish Error:", err);
+      }
+    });
+  }
+  console.log(`Published to MQTT: ${result}`);
+}
+
 export default function Home() {
   const [testMode, setTestMode] = useState(false);
   const [rejectDelay, setRejectDelay] = useState(3000); // milliseconds
@@ -36,45 +58,57 @@ export default function Home() {
   const handleKeyPress = (event: KeyboardEvent) => {
     if (event.key === 'Enter') {
         const scannedBarcode = barcodeBuffer.trim();
-        if (scannedBarcode) {
-            handleScan(scannedBarcode)
-        }
-        barcodeBuffer = ''; // Reset the buffer after processing
+      handleScan(scannedBarcode);
+      barcodeBuffer = ""; // Reset the buffer after processing
     } else {
-        barcodeBuffer += event.key; // Append the pressed key to the buffer
+      barcodeBuffer += event.key; // Append the pressed key to the buffer
     }
   };
 
   const handleScan = (scannedBarcode: string) => {
-      setBarcode(scannedBarcode);
-      const isValid = isValidGTIN(scannedBarcode);
-      setResult(isValid ? "PASS" : "FAIL");
-      if (!isValid) {
-        triggerGPIOOutput(true);
+    if (!scannedBarcode) {
+      return; // Do not run if the code is empty
+    }
+    setBarcode(scannedBarcode);
+    const isValid = isValidGTIN(scannedBarcode);
+    const currentResult: "PASS" | "FAIL" = isValid ? "PASS" : "FAIL";
+    setResult(currentResult);
+    publishResult(currentResult);
+    if (!isValid) {
+      triggerGPIOOutput(true);
+    }
+  };
+  useEffect(() => {
+    const caseDetectionInterval = setInterval(() => {
+      if (testMode || simulateGPIODetection()) {
+        setCaseDetected(true);
+        //handleScan(); // Simulate barcode scan on case detection
+      } else {
+        setCaseDetected(false);
+        setBarcode(null);
+        setResult(null);
       }
-  }
-    useEffect(() => {
+    }, 2000);
 
-        const caseDetectionInterval = setInterval(() => {
-            if (testMode || simulateGPIODetection()) {
-                setCaseDetected(true);
-                handleScan(); // Simulate barcode scan on case detection
-            } else {
-                setCaseDetected(false);
-                setBarcode(null);
-                setResult(null);
-            }
-        }, 2000);
+    return () => {
+      clearInterval(caseDetectionInterval);
+    };
+  }, [testMode, rejectDelay]);
 
-        return () => {
-            clearInterval(caseDetectionInterval);
-        };
-    }, [testMode, rejectDelay]);
-  
-    useEffect(() => {
-        window.addEventListener('keypress', handleKeyPress);
-        return () => window.removeEventListener('keypress', handleKeyPress);
-    }, []);
+  useEffect(() => {
+    client.on("connect", () => {
+      console.log("Connected to MQTT Broker");
+    });
+    client.on("error", (err) => {
+      console.error("MQTT Error:", err);
+    });
+
+    window.addEventListener("keypress", handleKeyPress);
+    return () => {
+      window.removeEventListener("keypress", handleKeyPress);
+      client.end();
+    };
+  }, []);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen py-2">
@@ -102,25 +136,25 @@ export default function Home() {
             />
           </div>
         </CardContent>
-        <Separator/>
+        <Separator />
         <CardContent className="grid gap-4">
-        <div className="grid gap-2">
+          <div className="grid gap-2">
             <Label>Product Sensor GPIO:</Label>
-            <p>GPIO 17</p>
+            <p>GPIO 17 (Placeholder)</p>
           </div>
           <div className="grid gap-2">
             <Label>Reject Output GPIO:</Label>
-            <p>GPIO 27</p>
+            <p>GPIO 27 (Placeholder)</p>
           </div>
         </CardContent>
-        <Separator/>
+        <Separator />
         <CardHeader>
           <h2 className="text-lg font-semibold">Verification Results</h2>
         </CardHeader>
         <CardContent className="grid gap-4">
           <div className="grid gap-2">
             <Label>Case Detected:</Label>
-            <p>{caseDetected ? "Yes, awaiting scan" : "No"}</p>
+            <p>{caseDetected ? "Yes, waiting for barcode" : "No"}</p>
           </div>
           <div className="grid gap-2">
             <Label>Barcode:</Label>
@@ -128,9 +162,12 @@ export default function Home() {
           </div>
           <div className="grid gap-2">
             <Label>Result (Scan a barcode using the USB Scanner):</Label>
-            <p className={`font-bold text-xl ${
-                result === "PASS" ? "text-accent" : (result === "FAIL" ? "text-destructive" : "")
-              }`}>{result || "Scan a barcode to receive a result"}</p>
+            <p
+              className={`font-bold text-xl ${result === "PASS"
+                ? "text-accent"
+                : result === "FAIL" ? "text-destructive" : ""
+                }`}
+            >{result || "Scan a barcode to receive a result"}</p>
           </div>
         </CardContent>
         
