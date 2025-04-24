@@ -1,9 +1,8 @@
 "use client";
-console.log("page.tsx file loaded");
 
 
 
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { useState, useEffect } from "react";
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
 import { Switch, Input, Label } from "@/components/ui/";
@@ -18,7 +17,7 @@ const MQTT_CLIENT_ID = "BarcodeVerifier";
 
 // Initialize MQTT Client
 const client = mqtt.connect({ 
-  host: MQTT_BROKER,
+   host: MQTT_BROKER,
   port: MQTT_PORT,
   clientId: MQTT_CLIENT_ID,
 });
@@ -54,7 +53,7 @@ const publishResult = (result: "PASS" | "FAIL") => {
 };
 
 export default function Home() { 
-  const [testMode, setTestMode] = useState(false);
+upd  const [testMode, setTestMode] = useState(false);
   const [rejectDelay, setRejectDelay] = useState(3000); // milliseconds
   const [barcode, setBarcode] = useState<string | null>(null);
   const [result, setResult] = useState<"PASS" | "FAIL" | null>(null);
