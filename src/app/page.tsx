@@ -2,11 +2,13 @@ console.log("page.tsx file loaded");
 
 "use client";
 
+"use client";
+
+console.log("page.tsx file loaded");
+
 import { useState, useEffect } from "react";
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
+import { Switch, Input, Label } from "@/components/ui/";
 import { Separator } from "@/components/ui/separator";
 import mqtt from "mqtt";
 
