@@ -14,22 +14,12 @@ const simulateGPIODetection = (): boolean => {
     return Math.random() > 0.5; 
 };
 
-const simulateBarcodeScan = (): string | null => {
-    // Simulate barcode scanner input
-    if (Math.random() > 0.5) {
-        // Simulate a valid GTIN-like barcode
-        return "00307680017808";
-    } else if (Math.random() > 0.3) {
-        // Simulate an invalid barcode
-        return "12345INVALID";
-    }
-    return null; // No barcode scanned
-};
-
 const triggerGPIOOutput = (isFail: boolean): void => {
     // Dummy GPIO output trigger (replace with actual GPIO control)
     console.log(`GPIO Output Triggered: ${isFail ? 'FAIL' : 'No Action'}`);
 };
+
+let barcodeBuffer: string = '';
 
 function isValidGTIN(barcode: string): boolean {
   // Basic GTIN format validation (12-14 digits)
@@ -43,24 +33,27 @@ export default function Home() {
   const [result, setResult] = useState<"PASS" | "FAIL" | null>(null);
   const [caseDetected, setCaseDetected] = useState(false);
 
+  const handleKeyPress = (event: KeyboardEvent) => {
+    if (event.key === 'Enter') {
+        const scannedBarcode = barcodeBuffer.trim();
+        if (scannedBarcode) {
+            handleScan(scannedBarcode)
+        }
+        barcodeBuffer = ''; // Reset the buffer after processing
+    } else {
+        barcodeBuffer += event.key; // Append the pressed key to the buffer
+    }
+  };
+
+  const handleScan = (scannedBarcode: string) => {
+      setBarcode(scannedBarcode);
+      const isValid = isValidGTIN(scannedBarcode);
+      setResult(isValid ? "PASS" : "FAIL");
+      if (!isValid) {
+        triggerGPIOOutput(true);
+      }
+  }
     useEffect(() => {
-        let barcodeCheckTimeout: NodeJS.Timeout | null = null;
-
-        const handleScan = () => {
-            const scannedBarcode = simulateBarcodeScan();
-            if (scannedBarcode) {
-                setBarcode(scannedBarcode);
-                const isValid = isValidGTIN(scannedBarcode);
-                setResult(isValid ? "PASS" : "FAIL");
-
-                if (!isValid) {
-                    // Trigger GPIO output after delay
-                    barcodeCheckTimeout = setTimeout(() => {
-                        triggerGPIOOutput(true);
-                    }, rejectDelay);
-                }
-            }
-        };
 
         const caseDetectionInterval = setInterval(() => {
             if (testMode || simulateGPIODetection()) {
@@ -70,20 +63,18 @@ export default function Home() {
                 setCaseDetected(false);
                 setBarcode(null);
                 setResult(null);
-                if (barcodeCheckTimeout) {
-                    clearTimeout(barcodeCheckTimeout); // Clear timeout if case is no longer detected
-                    barcodeCheckTimeout = null;
-                }
             }
         }, 2000);
 
         return () => {
             clearInterval(caseDetectionInterval);
-            if (barcodeCheckTimeout) {
-                clearTimeout(barcodeCheckTimeout);
-            }
         };
     }, [testMode, rejectDelay]);
+  
+    useEffect(() => {
+        window.addEventListener('keypress', handleKeyPress);
+        return () => window.removeEventListener('keypress', handleKeyPress);
+    }, []);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen py-2">
@@ -112,28 +103,37 @@ export default function Home() {
           </div>
         </CardContent>
         <Separator/>
+        <CardContent className="grid gap-4">
+        <div className="grid gap-2">
+            <Label>Product Sensor GPIO:</Label>
+            <p>GPIO 17</p>
+          </div>
+          <div className="grid gap-2">
+            <Label>Reject Output GPIO:</Label>
+            <p>GPIO 27</p>
+          </div>
+        </CardContent>
+        <Separator/>
         <CardHeader>
           <h2 className="text-lg font-semibold">Verification Results</h2>
         </CardHeader>
         <CardContent className="grid gap-4">
           <div className="grid gap-2">
             <Label>Case Detected:</Label>
-            <p>{caseDetected ? "Yes" : "No"}</p>
+            <p>{caseDetected ? "Yes, awaiting scan" : "No"}</p>
           </div>
           <div className="grid gap-2">
             <Label>Barcode:</Label>
             <p>{barcode || "No barcode scanned"}</p>
           </div>
           <div className="grid gap-2">
-            <Label>Result:</Label>
+            <Label>Result (Scan a barcode using the USB Scanner):</Label>
             <p className={`font-bold text-xl ${
                 result === "PASS" ? "text-accent" : (result === "FAIL" ? "text-destructive" : "")
-              }`}>{result || "Awaiting scan"}</p>
+              }`}>{result || "Scan a barcode to receive a result"}</p>
           </div>
         </CardContent>
-        <CardFooter className="flex justify-end">
-          <Button>Start Verification</Button>
-        </CardFooter>
+        
       </Card>
     </div>
   );
