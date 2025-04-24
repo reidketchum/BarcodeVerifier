@@ -20,9 +20,20 @@ const simulateGPIODetection = (): boolean => {
     return Math.random() > 0.5; 
 };
 
-const triggerGPIOOutput = (isFail: boolean): void => {
-    // Dummy GPIO output trigger (replace with actual GPIO control)
-    console.log(`GPIO Output Triggered: ${isFail ? 'FAIL' : 'No Action'}`);
+// triggerGPIOOutput now updates a state variable
+const triggerGPIOOutput = (setRejectOutputState: (state: 'Inactive' | 'Active') => void, isFail: boolean): void => {
+    if (isFail) {
+        console.log(`GPIO Output Triggered: FAIL`);
+        setRejectOutputState('Active');
+        // In a real scenario, you would control the GPIO pin here.
+        // For simulation, we'll set it back to inactive after a short delay
+        setTimeout(() => {
+            setRejectOutputState('Inactive');
+        }, 500); // Simulate active state for 500ms
+    } else {
+        console.log(`GPIO Output Triggered: No Action`);
+        setRejectOutputState('Inactive');
+    }
 };
 
 let barcodeBuffer: string = '';
@@ -47,13 +58,14 @@ const publishResult = (client: MqttClient | null, result: "PASS" | "FAIL") => {
 };
 
 export default function Home() { 
-    console.log("Home function component is being called."); // Log at the start of the function
-
   const [testMode, setTestMode] = useState(false);
   const [rejectDelay, setRejectDelay] = useState(3000); // milliseconds
   const [barcode, setBarcode] = useState<string | null>(null);
   const [result, setResult] = useState<"PASS" | "FAIL" | null>(null);
   const [caseDetected, setCaseDetected] = useState(false);
+  const [mqttStatus, setMqttStatus] = useState<'Connecting...' | 'Connected' | 'Disconnected' | 'Error'>('Disconnected'); // New state for MQTT status
+  const [rejectOutputState, setRejectOutputState] = useState<'Inactive' | 'Active'>('Inactive'); // New state for reject output
+
 
   // Ref to hold the MQTT client instance
   const mqttClientRef = useRef<MqttClient | null>(null);
@@ -68,7 +80,7 @@ export default function Home() {
     }
   };
 
-  // handleScan now calls publishResult with the current client instance
+  // handleScan now calls publishResult with the current client instance and updates reject output state
   const handleScan = (scannedBarcode: string) => {
     if (!scannedBarcode) {
       return; // Do not run if the code is empty
@@ -80,7 +92,7 @@ export default function Home() {
     setResult(currentResult);
     publishResult(mqttClientRef.current, currentResult); // Pass client instance
     if (!isValid) {
-      triggerGPIOOutput(true);
+      triggerGPIOOutput(setRejectOutputState, true); // Pass setter to update state
     }
   };
 
@@ -103,8 +115,10 @@ export default function Home() {
   }, [testMode, rejectDelay]);
 
   // Effect for MQTT client and keypress listener
-  console.log("Running useEffect for MQTT and keypress"); // Log to check if this effect is reached
   useEffect(() => {
+    console.log("Running useEffect for MQTT and keypress"); // Log to check if this effect is reached
+    setMqttStatus('Connecting...'); // Set status to connecting on mount
+
     // Initialize MQTT client in the browser environment
     mqttClientRef.current = mqtt.connect({
         host: MQTT_BROKER,
@@ -113,14 +127,21 @@ export default function Home() {
     });
     console.log("MQTT Client Ref after connect:", mqttClientRef.current); // Log ref value
 
+    // Update MQTT status based on client events
     mqttClientRef.current.on("connect", () => {
       console.log("MQTT Client Connected");
-      console.log("MQTT Broker URL:", MQTT_BROKER);
+      setMqttStatus('Connected');
     });
 
     mqttClientRef.current.on("error", (err) => {
         console.error("MQTT Error:", err);
+        setMqttStatus('Error');
         console.log("Trying to connect to:",MQTT_BROKER)
+    });
+
+    mqttClientRef.current.on("close", () => {
+        console.log("MQTT Client Disconnected");
+        setMqttStatus('Disconnected');
     });
 
     window.addEventListener("keypress", handleKeyPress);
@@ -130,7 +151,7 @@ export default function Home() {
       window.removeEventListener("keypress", handleKeyPress);
       if (mqttClientRef.current) {
         mqttClientRef.current.end();
-        console.log("MQTT Client Disconnected");
+        console.log("MQTT Client Disconnected (cleanup)");
       }
     };
   }, []); // Empty dependency array ensures this runs only once on mount
@@ -166,11 +187,16 @@ export default function Home() {
         <CardContent className="grid gap-4">
           <div className="grid gap-2">
             <Label>Product Sensor GPIO:</Label>
-            <p>GPIO 17 (Placeholder)</p>
+            <p>GPIO 17 (Placeholder) - State: {caseDetected ? 'Case Detected' : 'No Case'}</p>{/* Display Case Detected State */}
           </div>
           <div className="grid gap-2">
             <Label>Reject Output GPIO:</Label>
-            <p>GPIO 27 (Placeholder)</p>
+            <p>GPIO 27 (Placeholder) - State: {rejectOutputState}</p>{/* Display Reject Output State */}
+          </div>
+          {/* Display MQTT Status */}
+          <div className="grid gap-2">
+            <Label>MQTT Status:</Label>
+            <p>{mqttStatus}</p>
           </div>
         </CardContent>
         <Separator />
