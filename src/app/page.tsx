@@ -47,6 +47,8 @@ const publishResult = (client: MqttClient | null, result: "PASS" | "FAIL") => {
 };
 
 export default function Home() { 
+    console.log("Home function component is being called."); // Log at the start of the function
+
   const [testMode, setTestMode] = useState(false);
   const [rejectDelay, setRejectDelay] = useState(3000); // milliseconds
   const [barcode, setBarcode] = useState<string | null>(null);
@@ -109,6 +111,7 @@ export default function Home() {
         port: MQTT_PORT,
         clientId: MQTT_CLIENT_ID,
     });
+    console.log("MQTT Client Ref after connect:", mqttClientRef.current); // Log ref value
 
     mqttClientRef.current.on("connect", () => {
       console.log("MQTT Client Connected");
