@@ -1,11 +1,9 @@
+"use client";
 console.log("page.tsx file loaded");
 
-"use client";
 
-"use client";
 
-console.log("page.tsx file loaded");
-
+import { useEffect, useState } from "react";
 import { useState, useEffect } from "react";
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
 import { Switch, Input, Label } from "@/components/ui/";
@@ -19,13 +17,13 @@ const MQTT_TOPIC = "Tekpak/F6/BarcodeVerifier";
 const MQTT_CLIENT_ID = "BarcodeVerifier";
 
 // Initialize MQTT Client
-const client = mqtt.connect({
+const client = mqtt.connect({ 
   host: MQTT_BROKER,
   port: MQTT_PORT,
   clientId: MQTT_CLIENT_ID,
 });
-const simulateGPIODetection = (): boolean => {
-  
+const simulateGPIODetection = (): boolean => {  
+
     // Simulate case detected by sensor
     return Math.random() > 0.5; 
 };
@@ -42,8 +40,8 @@ function isValidGTIN(barcode: string): boolean {
   return /^\d{12,14}$/.test(barcode);
 }
 
-const publishResult = (result: "PASS" | "FAIL") => {  
-    if (client.connected) {
+const publishResult = (result: "PASS" | "FAIL") => {
+      if (client.connected) {
         console.log(`Result before publishing: ${result}`); // Log the result right before publishing
         client.publish(MQTT_TOPIC, result, (err) => {
         if (err) {
@@ -55,7 +53,7 @@ const publishResult = (result: "PASS" | "FAIL") => {
     }
 };
 
-export default function Home() {
+export default function Home() { 
   const [testMode, setTestMode] = useState(false);
   const [rejectDelay, setRejectDelay] = useState(3000); // milliseconds
   const [barcode, setBarcode] = useState<string | null>(null);
