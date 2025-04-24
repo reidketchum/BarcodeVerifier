@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import mqtt from "mqtt";
+import { MqttClient } from "mqtt"; // Import MqttClient type for useRef
 
 // MQTT Configuration
 const MQTT_BROKER = "192.168.5.5";
@@ -14,14 +15,7 @@ const MQTT_PORT = 1883;
 const MQTT_TOPIC = "Tekpak/F6/BarcodeVerifier";
 const MQTT_CLIENT_ID = "BarcodeVerifier";
 
-// Initialize MQTT Client
-const client = mqtt.connect({ 
-   host: MQTT_BROKER,
-  port: MQTT_PORT,
-  clientId: MQTT_CLIENT_ID,
-});
 const simulateGPIODetection = (): boolean => {  
-
     // Simulate case detected by sensor
     return Math.random() > 0.5; 
 };
@@ -38,13 +32,14 @@ function isValidGTIN(barcode: string): boolean {
   return /^\d{12,14}$/.test(barcode);
 }
 
-const publishResult = (result: "PASS" | "FAIL") => {
-      if (client.connected) {
+// publishResult now accepts the client instance
+const publishResult = (client: MqttClient | null, result: "PASS" | "FAIL") => {
+    if (client && client.connected) {
         console.log(`Result before publishing: ${result}`); // Log the result right before publishing
         client.publish(MQTT_TOPIC, result, (err) => {
-        if (err) {
-            console.error("MQTT Publish Error:", err);
-        }
+            if (err) {
+                console.error("MQTT Publish Error:", err);
+            }
         });
     } else {
         console.log("Not connected to MQTT broker. Cannot publish.");
@@ -58,6 +53,9 @@ export default function Home() {
   const [result, setResult] = useState<"PASS" | "FAIL" | null>(null);
   const [caseDetected, setCaseDetected] = useState(false);
 
+  // Ref to hold the MQTT client instance
+  const mqttClientRef = useRef<MqttClient | null>(null);
+
   const handleKeyPress = (event: KeyboardEvent) => {
     if (event.key === 'Enter') {
         const scannedBarcode = barcodeBuffer.trim();
@@ -68,6 +66,7 @@ export default function Home() {
     }
   };
 
+  // handleScan now calls publishResult with the current client instance
   const handleScan = (scannedBarcode: string) => {
     if (!scannedBarcode) {
       return; // Do not run if the code is empty
@@ -77,11 +76,13 @@ export default function Home() {
     const isValid = isValidGTIN(scannedBarcode);
     const currentResult: "PASS" | "FAIL" = isValid ? "PASS" : "FAIL";
     setResult(currentResult);
-    publishResult(currentResult);
+    publishResult(mqttClientRef.current, currentResult); // Pass client instance
     if (!isValid) {
       triggerGPIOOutput(true);
     }
   };
+
+  // Effect for case detection simulation
   useEffect(() => {
     const caseDetectionInterval = setInterval(() => {
       if (testMode || simulateGPIODetection()) {
@@ -99,22 +100,37 @@ export default function Home() {
     };
   }, [testMode, rejectDelay]);
 
+  // Effect for MQTT client and keypress listener
+  console.log("Running useEffect for MQTT and keypress"); // Log to check if this effect is reached
   useEffect(() => {
-    client.on("connect", () => {
+    // Initialize MQTT client in the browser environment
+    mqttClientRef.current = mqtt.connect({
+        host: MQTT_BROKER,
+        port: MQTT_PORT,
+        clientId: MQTT_CLIENT_ID,
+    });
+
+    mqttClientRef.current.on("connect", () => {
       console.log("MQTT Client Connected");
       console.log("MQTT Broker URL:", MQTT_BROKER);
     });
-    client.on("error", (err) => {
+
+    mqttClientRef.current.on("error", (err) => {
         console.error("MQTT Error:", err);
         console.log("Trying to connect to:",MQTT_BROKER)
     });
 
     window.addEventListener("keypress", handleKeyPress);
+
+    // Cleanup function to disconnect MQTT client and remove listener
     return () => {
       window.removeEventListener("keypress", handleKeyPress);
-      client.end();
+      if (mqttClientRef.current) {
+        mqttClientRef.current.end();
+        console.log("MQTT Client Disconnected");
+      }
     };
-  }, []);
+  }, []); // Empty dependency array ensures this runs only once on mount
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen py-2">
@@ -142,6 +158,7 @@ export default function Home() {
             />
           </div>
         </CardContent>
+        
         <Separator />
         <CardContent className="grid gap-4">
           <div className="grid gap-2">
