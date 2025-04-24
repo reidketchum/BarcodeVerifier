@@ -21,6 +21,7 @@ const client = mqtt.connect({
   clientId: MQTT_CLIENT_ID,
 });
 const simulateGPIODetection = (): boolean => {
+  
     // Simulate case detected by sensor
     return Math.random() > 0.5; 
 };
@@ -37,16 +38,18 @@ function isValidGTIN(barcode: string): boolean {
   return /^\d{12,14}$/.test(barcode);
 }
 
-const publishResult = (result: "PASS" | "FAIL") => {
-  if (client.connected) {
-    client.publish(MQTT_TOPIC, result, (err) => {
-      if (err) {
-        console.error("MQTT Publish Error:", err);
-      }
-    });
-  }
-  console.log(`Published to MQTT: ${result}`);
-}
+const publishResult = (result: "PASS" | "FAIL") => {  
+    if (client.connected) {
+        console.log(`Result before publishing: ${result}`); // Log the result right before publishing
+        client.publish(MQTT_TOPIC, result, (err) => {
+        if (err) {
+            console.error("MQTT Publish Error:", err);
+        }
+        });
+    } else {
+        console.log("Not connected to MQTT broker. Cannot publish.");
+    }
+};
 
 export default function Home() {
   const [testMode, setTestMode] = useState(false);
@@ -69,6 +72,7 @@ export default function Home() {
     if (!scannedBarcode) {
       return; // Do not run if the code is empty
     }
+    console.log("handleScan called with:", scannedBarcode)
     setBarcode(scannedBarcode);
     const isValid = isValidGTIN(scannedBarcode);
     const currentResult: "PASS" | "FAIL" = isValid ? "PASS" : "FAIL";
@@ -97,10 +101,12 @@ export default function Home() {
 
   useEffect(() => {
     client.on("connect", () => {
-      console.log("Connected to MQTT Broker");
+      console.log("MQTT Client Connected");
+      console.log("MQTT Broker URL:", MQTT_BROKER);
     });
     client.on("error", (err) => {
-      console.error("MQTT Error:", err);
+        console.error("MQTT Error:", err);
+        console.log("Trying to connect to:",MQTT_BROKER)
     });
 
     window.addEventListener("keypress", handleKeyPress);
