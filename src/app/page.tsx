@@ -65,6 +65,7 @@ export default function Home() {
   const [caseDetected, setCaseDetected] = useState(false);
   const [mqttStatus, setMqttStatus] = useState<'Connecting...' | 'Connected' | 'Disconnected' | 'Error'>('Disconnected'); // New state for MQTT status
   const [rejectOutputState, setRejectOutputState] = useState<'Inactive' | 'Active'>('Inactive'); // New state for reject output
+  const [mqttErrorMessage, setMqttErrorMessage] = useState<string | null>(null); // New state for MQTT error message
 
 
   // Ref to hold the MQTT client instance
@@ -118,6 +119,7 @@ export default function Home() {
   useEffect(() => {
     console.log("Running useEffect for MQTT and keypress"); // Log to check if this effect is reached
     setMqttStatus('Connecting...'); // Set status to connecting on mount
+    setMqttErrorMessage(null); // Clear previous errors
 
     // Initialize MQTT client in the browser environment
     mqttClientRef.current = mqtt.connect({
@@ -131,11 +133,13 @@ export default function Home() {
     mqttClientRef.current.on("connect", () => {
       console.log("MQTT Client Connected");
       setMqttStatus('Connected');
+      setMqttErrorMessage(null); // Clear error message on successful connect
     });
 
     mqttClientRef.current.on("error", (err) => {
         console.error("MQTT Error:", err);
         setMqttStatus('Error');
+        setMqttErrorMessage(err.message || 'An unknown MQTT error occurred'); // Capture error message
         console.log("Trying to connect to:",MQTT_BROKER)
     });
 
@@ -193,10 +197,13 @@ export default function Home() {
             <Label>Reject Output GPIO:</Label>
             <p>GPIO 27 (Placeholder) - State: {rejectOutputState}</p>{/* Display Reject Output State */}
           </div>
-          {/* Display MQTT Status */}
+          {/* Display MQTT Status and Error */}
           <div className="grid gap-2">
             <Label>MQTT Status:</Label>
             <p>{mqttStatus}</p>
+            {mqttStatus === 'Error' && mqttErrorMessage && (
+              <p className="text-destructive text-sm mt-1">Error: {mqttErrorMessage}</p>
+            )}
           </div>
         </CardContent>
         <Separator />
