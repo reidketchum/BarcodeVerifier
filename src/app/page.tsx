@@ -1,9 +1,6 @@
 "use client";
 
-
-
-import { useState, useEffect } from "react";
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
 import { Switch, Input, Label } from "@/components/ui/";
 import { Separator } from "@/components/ui/separator";
@@ -53,7 +50,7 @@ const publishResult = (result: "PASS" | "FAIL") => {
 };
 
 export default function Home() { 
-upd  const [testMode, setTestMode] = useState(false);
+  const [testMode, setTestMode] = useState(false);
   const [rejectDelay, setRejectDelay] = useState(3000); // milliseconds
   const [barcode, setBarcode] = useState<string | null>(null);
   const [result, setResult] = useState<"PASS" | "FAIL" | null>(null);
