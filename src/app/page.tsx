@@ -9,11 +9,17 @@ import { Label } from "@/components/ui/label";
 import mqtt from "mqtt";
 import { MqttClient } from "mqtt"; // Import MqttClient type for useRef
 
-// Initial MQTT Configuration (can be overridden in UI)
-const INITIAL_MQTT_BROKER = "192.168.5.5";
-const INITIAL_MQTT_PORT = 1883;
+// Initial MQTT Configuration (used if nothing in localStorage)
+const INITIAL_MQTT_BROKER = "192.166.5.5"; // Changed to 192.166
+const INITIAL_MQTT_PORT = 9001; // Changed port to 9001
 const INITIAL_MQTT_TOPIC = "Tekpak/F6/BarcodeVerifier";
 const INITIAL_MQTT_CLIENT_ID = "BarcodeVerifier";
+
+// Keys for localStorage
+const LS_MQTT_BROKER = 'mqttBroker';
+const LS_MQTT_PORT = 'mqttPort';
+const LS_MQTT_TOPIC = 'mqttTopic';
+const LS_MQTT_CLIENT_ID = 'mqttClientId';
 
 const simulateGPIODetection = (): boolean => {  
     // Simulate case detected by sensor
@@ -57,6 +63,25 @@ const publishResult = (client: MqttClient | null, topic: string, result: "PASS" 
     }
 };
 
+// Helper function to get initial state from localStorage or fallback
+const getInitialState = <T,>(key: string, fallback: T): T => {
+  // Check if running in a browser environment
+  if (typeof window !== 'undefined') {
+    const storedValue = localStorage.getItem(key);
+    if (storedValue !== null) {
+      try {
+        // Attempt to parse if it looks like JSON (e.g., for numbers)
+        // Simple values like strings don't need parsing
+        return storedValue;
+      } catch (error) {
+        console.error(`Error parsing localStorage key "${key}":`, error);
+        return fallback; // Fallback on parsing error
+      }
+    }
+  }
+  return fallback; // Fallback if not in browser or value not found
+};
+
 export default function Home() { 
   const [testMode, setTestMode] = useState(false);
   const [rejectDelay, setRejectDelay] = useState(3000); // milliseconds
@@ -67,14 +92,24 @@ export default function Home() {
   const [rejectOutputState, setRejectOutputState] = useState<'Inactive' | 'Active'>('Inactive'); // New state for reject output
   const [mqttErrorMessage, setMqttErrorMessage] = useState<string | null>(null); // New state for MQTT error message
 
-  // State for MQTT Configuration
-  const [mqttBroker, setMqttBroker] = useState(INITIAL_MQTT_BROKER);
-  const [mqttPort, setMqttPort] = useState(INITIAL_MQTT_PORT.toString()); // Store as string for input
-  const [mqttTopic, setMqttTopic] = useState(INITIAL_MQTT_TOPIC);
-  const [mqttClientId, setMqttClientId] = useState(INITIAL_MQTT_CLIENT_ID);
+  // State for MQTT Configuration - Initialize from localStorage or defaults
+  const [mqttBroker, setMqttBroker] = useState<string>(() => getInitialState(LS_MQTT_BROKER, INITIAL_MQTT_BROKER));
+  const [mqttPort, setMqttPort] = useState<string>(() => getInitialState(LS_MQTT_PORT, INITIAL_MQTT_PORT.toString()));
+  const [mqttTopic, setMqttTopic] = useState<string>(() => getInitialState(LS_MQTT_TOPIC, INITIAL_MQTT_TOPIC));
+  const [mqttClientId, setMqttClientId] = useState<string>(() => getInitialState(LS_MQTT_CLIENT_ID, INITIAL_MQTT_CLIENT_ID));
 
   // Ref to hold the MQTT client instance
   const mqttClientRef = useRef<MqttClient | null>(null);
+
+  // Effect to save MQTT config to localStorage whenever it changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') { // Ensure localStorage is available
+        localStorage.setItem(LS_MQTT_BROKER, mqttBroker);
+        localStorage.setItem(LS_MQTT_PORT, mqttPort);
+        localStorage.setItem(LS_MQTT_TOPIC, mqttTopic);
+        localStorage.setItem(LS_MQTT_CLIENT_ID, mqttClientId);
+    }
+  }, [mqttBroker, mqttPort, mqttTopic, mqttClientId]);
 
   const handleKeyPress = (event: KeyboardEvent) => {
     if (event.key === 'Enter') {
@@ -171,7 +206,6 @@ export default function Home() {
         console.log("[MQTT] Client Disconnected. Had Error:", hadError);
         setMqttStatus('Disconnected');
          if (hadError) {
-            // Try to get a more specific reason if available (library dependent)
              setMqttErrorMessage('Disconnected due to error');
          }
     });
@@ -318,8 +352,8 @@ export default function Home() {
               className={`font-bold text-xl ${result === "PASS"
                 ? "text-accent"
                 : result === "FAIL" ? "text-destructive" : ""
-                }`}
-            >{result || "Scan a barcode to receive a result"}</p>
+                }`
+            }>{result || "Scan a barcode to receive a result"}</p>
           </div>
         </CardContent>
         
