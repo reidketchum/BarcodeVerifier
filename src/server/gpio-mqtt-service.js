@@ -133,7 +133,7 @@ try {
 function activateRejectOutput() {
     if (rejectOutput) {
         console.log('[GPIO-MQTT] Activating reject output (GPIO HIGH)');
-        rejectOutput.write(1); // Set GPIO high
+        rejectOutput.writeSync(1); // Set GPIO high using synchronous write for reliability
     } else {
         console.warn('[GPIO-MQTT] Reject output GPIO not initialized.');
     }
@@ -142,7 +142,7 @@ function activateRejectOutput() {
 function deactivateRejectOutput() {
     if (rejectOutput) {
         console.log('[GPIO-MQTT] Deactivating reject output (GPIO LOW)');
-        rejectOutput.write(0); // Set GPIO low
+        rejectOutput.writeSync(0); // Set GPIO low using synchronous write
     } else {
         console.warn('[GPIO-MQTT] Reject output GPIO not initialized.');
     }
@@ -184,5 +184,5 @@ process.on('SIGTERM', cleanupAndExit); // Catch kill/system shutdown
 
 console.log('[GPIO-MQTT] GPIO-MQTT service initialization complete. Watching GPIO pin...');
 
-// Keep the process running (not strictly necessary if watching GPIO)
+// Keep the process running (not strictly necessary when using GPIO watch)
 // process.stdin.resume(); 
