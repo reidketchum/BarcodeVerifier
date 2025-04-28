@@ -3,40 +3,29 @@
 import { useEffect, useState, useRef } from "react";
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { Switch } from "@/components/ui/switch";
+// Removed Switch import as Test Mode is removed
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import mqtt from "mqtt";
 import { MqttClient } from "mqtt"; // Import MqttClient type for useRef
 
 // Initial MQTT Configuration (used if nothing in localStorage)
-const INITIAL_MQTT_BROKER = "192.166.5.5"; // Changed to 192.166
-const INITIAL_MQTT_PORT = 9001; // Changed port to 9001
+const INITIAL_MQTT_BROKER = "192.166.5.5";
+const INITIAL_MQTT_PORT = 9001;
 const INITIAL_MQTT_VERIFY_TOPIC = "Tekpak/F6/BarcodeVerifier";
-const INITIAL_MQTT_CLIENT_ID = "BarcodeVerifier";
-const PRODUCT_SENSOR_TOPIC = "Tekpak/F6/ProductSensor/State"; // Topic for sensor state
+const INITIAL_MQTT_CLIENT_ID = "BarcodeVerifierUI"; // Renamed for clarity
+const PRODUCT_SENSOR_TOPIC = "Tekpak/F6/ProductSensor/State"; // Topic for subscribing to sensor state
+const REJECT_OUTPUT_COMMAND_TOPIC = "Tekpak/F6/RejectOutput/Command"; // Topic for publishing reject command
 
 // Keys for localStorage
 const LS_MQTT_BROKER = 'mqttBroker';
 const LS_MQTT_PORT = 'mqttPort';
-const LS_MQTT_TOPIC = 'mqttVerifyTopic'; // Updated key for verify topic
+const LS_MQTT_VERIFY_TOPIC = 'mqttVerifyTopic';
 const LS_MQTT_CLIENT_ID = 'mqttClientId';
 
-// triggerGPIOOutput now updates a state variable
-const triggerGPIOOutput = (setRejectOutputState: (state: 'Inactive' | 'Active') => void, isFail: boolean): void => {
-    if (isFail) {
-        console.log(`GPIO Output Triggered: FAIL`);
-        setRejectOutputState('Active');
-        // In a real scenario, you would control the GPIO pin here.
-        // For simulation, we'll set it back to inactive after a short delay
-        setTimeout(() => {
-            setRejectOutputState('Inactive');
-        }, 500); // Simulate active state for 500ms
-    } else {
-        console.log(`GPIO Output Triggered: No Action`);
-        setRejectOutputState('Inactive');
-    }
-};
+// Removed simulateGPIODetection as it's no longer used
+
+// Removed triggerGPIOOutput as reject command will be sent via MQTT
 
 let barcodeBuffer: string = '';
 
@@ -45,53 +34,50 @@ function isValidGTIN(barcode: string): boolean {
   return /^\d{12,14}$/.test(barcode);
 }
 
-// publishResult now accepts the client instance and topic
-const publishResult = (client: MqttClient | null, topic: string, result: "PASS" | "FAIL") => {
+// Function to publish MQTT messages (can be used for verify result and reject command)
+const publishMqttMessage = (client: MqttClient | null, topic: string, message: string) => {
     if (client && client.connected) {
-        console.log(`[MQTT] Result before publishing: ${result} to topic ${topic}`); // Log the result right before publishing
-        client.publish(topic, result, (err) => {
+        console.log(`[MQTT] Publishing message: ${message} to topic ${topic}`); 
+        client.publish(topic, message, { qos: 1 }, (err) => { // Added QoS for reliability
             if (err) {
-                console.error(`[MQTT] Publish Error: ${err.message || err}`);
+                console.error(`[MQTT] Publish Error to ${topic}: ${err.message || err}`);
             }
         });
     } else {
-        console.log("[MQTT] Not connected to MQTT broker. Cannot publish.");
+        console.log(`[MQTT] Not connected to MQTT broker. Cannot publish to ${topic}.`);
     }
 };
 
 // Helper function to get initial state from localStorage or fallback
 const getInitialState = <T,>(key: string, fallback: T): T => {
-  // Check if running in a browser environment
   if (typeof window !== 'undefined') {
     const storedValue = localStorage.getItem(key);
     if (storedValue !== null) {
       try {
-        // Attempt to parse if it looks like JSON (e.g., for numbers)
-        // Simple values like strings don't need parsing
         return storedValue;
       } catch (error) {
         console.error(`Error parsing localStorage key "${key}":`, error);
-        return fallback; // Fallback on parsing error
+        return fallback;
       }
     }
   }
-  return fallback; // Fallback if not in browser or value not found
+  return fallback;
 };
 
 export default function Home() { 
-  // Removed testMode state as it's no longer used for case detection
-  const [rejectDelay, setRejectDelay] = useState(3000); // milliseconds
+  // Removed testMode state
+  const [rejectDelay, setRejectDelay] = useState(3000); // This might still be useful for UI logic, but not directly for GPIO
   const [barcode, setBarcode] = useState<string | null>(null);
   const [result, setResult] = useState<"PASS" | "FAIL" | null>(null);
-  const [caseDetected, setCaseDetected] = useState(false); // Will be updated via MQTT
-  const [mqttStatus, setMqttStatus] = useState<'Connecting...' | 'Connected' | 'Disconnected' | 'Error'>('Disconnected'); // New state for MQTT status
-  const [rejectOutputState, setRejectOutputState] = useState<'Inactive' | 'Active'>('Inactive'); // New state for reject output
-  const [mqttErrorMessage, setMqttErrorMessage] = useState<string | null>(null); // New state for MQTT error message
+  const [caseDetected, setCaseDetected] = useState(false); // Now updated via MQTT subscription
+  const [mqttStatus, setMqttStatus] = useState<'Connecting...' | 'Connected' | 'Disconnected' | 'Error'>('Disconnected'); 
+  // Removed rejectOutputState as physical state comes from background service
+  const [mqttErrorMessage, setMqttErrorMessage] = useState<string | null>(null);
 
   // State for MQTT Configuration - Initialize from localStorage or defaults
   const [mqttBroker, setMqttBroker] = useState<string>(() => getInitialState(LS_MQTT_BROKER, INITIAL_MQTT_BROKER));
   const [mqttPort, setMqttPort] = useState<string>(() => getInitialState(LS_MQTT_PORT, INITIAL_MQTT_PORT.toString()));
-  const [mqttVerifyTopic, setMqttVerifyTopic] = useState<string>(() => getInitialState(LS_MQTT_TOPIC, INITIAL_MQTT_VERIFY_TOPIC)); // Use updated key
+  const [mqttVerifyTopic, setMqttVerifyTopic] = useState<string>(() => getInitialState(LS_MQTT_VERIFY_TOPIC, INITIAL_MQTT_VERIFY_TOPIC)); 
   const [mqttClientId, setMqttClientId] = useState<string>(() => getInitialState(LS_MQTT_CLIENT_ID, INITIAL_MQTT_CLIENT_ID));
 
   // Ref to hold the MQTT client instance
@@ -99,10 +85,10 @@ export default function Home() {
 
   // Effect to save MQTT config to localStorage whenever it changes
   useEffect(() => {
-    if (typeof window !== 'undefined') { // Ensure localStorage is available
+    if (typeof window !== 'undefined') { 
         localStorage.setItem(LS_MQTT_BROKER, mqttBroker);
         localStorage.setItem(LS_MQTT_PORT, mqttPort);
-        localStorage.setItem(LS_MQTT_TOPIC, mqttVerifyTopic); // Save verify topic
+        localStorage.setItem(LS_MQTT_VERIFY_TOPIC, mqttVerifyTopic); 
         localStorage.setItem(LS_MQTT_CLIENT_ID, mqttClientId);
     }
   }, [mqttBroker, mqttPort, mqttVerifyTopic, mqttClientId]);
@@ -111,31 +97,42 @@ export default function Home() {
     if (event.key === 'Enter') {
         const scannedBarcode = barcodeBuffer.trim();
       handleScan(scannedBarcode);
-      barcodeBuffer = ""; // Reset the buffer after processing
+      barcodeBuffer = ""; 
     } else {
-      barcodeBuffer += event.key; // Append the pressed key to the buffer
+      barcodeBuffer += event.key; 
     }
   };
 
-  // handleScan now calls publishResult with the current client instance, topic and updates reject output state
+  // handleScan now publishes verify result and reject command via MQTT
   const handleScan = (scannedBarcode: string) => {
     if (!scannedBarcode) {
-      return; // Do not run if the code is empty
+      return; 
     }
-    console.log("handleScan called with:", scannedBarcode)
+    if (!caseDetected) { // Only process scan if case is detected
+      console.log("Scan ignored: No case detected.");
+      setBarcode(scannedBarcode); // Show scanned barcode even if ignored
+      setResult(null); // Clear previous result
+      return;
+    }
+    console.log("handleScan called with:", scannedBarcode);
     setBarcode(scannedBarcode);
     const isValid = isValidGTIN(scannedBarcode);
     const currentResult: "PASS" | "FAIL" = isValid ? "PASS" : "FAIL";
     setResult(currentResult);
-    publishResult(mqttClientRef.current, mqttVerifyTopic, currentResult); // Pass client instance and VERIFY topic
+    // Publish the verification result
+    publishMqttMessage(mqttClientRef.current, mqttVerifyTopic, currentResult);
+    // If invalid, publish command to activate reject output
     if (!isValid) {
-      triggerGPIOOutput(setRejectOutputState, true); // Pass setter to update state
+      console.log("[UI] Scan failed, sending ACTIVATE command for reject output.");
+      publishMqttMessage(mqttClientRef.current, REJECT_OUTPUT_COMMAND_TOPIC, "ACTIVATE");
+      // Optionally send DEACTIVATE after rejectDelay, though the background service might handle this
+      // setTimeout(() => {
+      //   publishMqttMessage(mqttClientRef.current, REJECT_OUTPUT_COMMAND_TOPIC, "DEACTIVATE");
+      // }, rejectDelay);
     }
   };
 
-  // Removed the useEffect hook that relied on testMode for case detection
-
-  // Effect for MQTT client and keypress listener
+  // Effect for MQTT client connection, subscriptions, and keypress listener
   useEffect(() => {
     console.log("[MQTT] Running useEffect for MQTT connection, subscription, and keypress");
     setMqttStatus('Connecting...');
@@ -143,7 +140,7 @@ export default function Home() {
 
     if (mqttClientRef.current) {
         console.log("[MQTT] Disconnecting previous client...");
-        mqttClientRef.current.end(true); // Force close
+        mqttClientRef.current.end(true);
         mqttClientRef.current = null;
     }
 
@@ -163,7 +160,7 @@ export default function Home() {
         clientId: mqttClientId,
         protocol: 'ws' 
     });
-    mqttClientRef.current = client; // Store client in ref
+    mqttClientRef.current = client;
     console.log("[MQTT] Client Ref after connect:", mqttClientRef.current);
 
     client.on("connect", () => {
@@ -171,7 +168,7 @@ export default function Home() {
       setMqttStatus('Connected');
       setMqttErrorMessage(null);
       // Subscribe to the product sensor state topic
-      client.subscribe(PRODUCT_SENSOR_TOPIC, (err) => {
+      client.subscribe(PRODUCT_SENSOR_TOPIC, { qos: 1 }, (err) => { // Added QoS
         if (!err) {
           console.log(`[MQTT] Subscribed to topic: ${PRODUCT_SENSOR_TOPIC}`);
         } else {
@@ -202,14 +199,20 @@ export default function Home() {
         setMqttErrorMessage('Client is offline');
     });
 
-    // Handle incoming messages (including sensor state)
+    // Handle incoming messages (only sensor state now)
     client.on('message', (topic, message) => {
         console.log(`[MQTT] Received message on ${topic}: ${message.toString()}`);
         if (topic === PRODUCT_SENSOR_TOPIC) {
-            const state = message.toString();
+            const state = message.toString().toLowerCase(); // Ensure consistent casing
             // Update caseDetected based on the received state message
-            setCaseDetected(state === 'detected'); // Assuming 'detected' or 'not detected'
-            console.log(`[UI] caseDetected state updated to: ${state === 'detected'}`);
+            const detected = (state === 'detected' || state === 'high' || state === '1');
+            setCaseDetected(detected);
+            console.log(`[UI] caseDetected state updated to: ${detected} based on message: ${state}`);
+            // Reset barcode/result when case is no longer detected
+            if (!detected) {
+                setBarcode(null);
+                setResult(null);
+            }
         }
     });
 
@@ -220,21 +223,20 @@ export default function Home() {
       console.log("[MQTT] Running cleanup for MQTT and keypress");
       window.removeEventListener("keypress", handleKeyPress);
       if (mqttClientRef.current) {
-        // Unsubscribe before closing
         mqttClientRef.current.unsubscribe(PRODUCT_SENSOR_TOPIC, (err) => {
           if(err) console.error("[MQTT] Unsubscribe error:", err);
           else console.log("[MQTT] Unsubscribed from", PRODUCT_SENSOR_TOPIC);
-          // End connection after unsubscribe attempt
-          mqttClientRef.current?.end(true, () => { // Use optional chaining and callback
+          mqttClientRef.current?.end(true, () => { 
               console.log("[MQTT] Client Disconnected (cleanup complete)");
           });
-          mqttClientRef.current = null; // Clear the ref
+          mqttClientRef.current = null; 
         });
       } else {
-         mqttClientRef.current = null; // Clear the ref if already null
+         mqttClientRef.current = null; 
       }
     };
-  }, [mqttBroker, mqttPort, mqttTopic, mqttClientId, mqttVerifyTopic]); // Include verify topic in dependencies
+  // Updated dependency array
+  }, [mqttBroker, mqttPort, mqttVerifyTopic, mqttClientId]); 
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen py-2">
@@ -243,7 +245,7 @@ export default function Home() {
         <CardHeader>
           <h2 className="text-lg font-semibold">Configuration</h2>
         </CardHeader>
-        {/* Removed Test Mode Switch as caseDetected is now driven by MQTT */}
+        {/* Removed Test Mode Switch */}
         <CardContent className="grid gap-4">
            <div className="grid gap-2">
             <Label htmlFor="reject-delay">Reject Delay (ms)</Label>
@@ -282,9 +284,9 @@ export default function Home() {
                 />
              </div>
               <div className="grid gap-2">
-                <Label htmlFor="mqtt-topic">Verify Publish Topic</Label> { /* Renamed Label */}
+                <Label htmlFor="mqtt-verify-topic">Verify Publish Topic</Label> { /* Updated Label */}
                 <Input
-                  id="mqtt-topic"
+                  id="mqtt-verify-topic" // Updated ID
                   type="text"
                   value={mqttVerifyTopic} // Use mqttVerifyTopic state
                   onChange={(e) => setMqttVerifyTopic(e.target.value)}
@@ -323,12 +325,13 @@ export default function Home() {
         <CardContent className="grid gap-4">
           <div className="grid gap-2">
             <Label>Product Sensor GPIO:</Label>
-            {/* Update display text to be clearer */}
+            {/* Updated display text */}
             <p>GPIO 17 (Placeholder) - State: {caseDetected ? 'Detected' : 'Not Detected'}</p>
           </div>
           <div className="grid gap-2">
             <Label>Reject Output GPIO:</Label>
-            <p>GPIO 27 (Placeholder) - State: {rejectOutputState}</p>
+            {/* Removed rejectOutputState display */}
+            <p>GPIO 27 (Placeholder) - State: Controlled by background service</p>
           </div>
         </CardContent>
         <Separator />
