@@ -168,7 +168,7 @@ export default function Home() {
         mqttClientRef.current = null; // Clear the ref
     }
 
-    console.log(`[MQTT] Attempting to connect to ${mqttBroker}:${mqttPort} using WebSocket (default for browser)`); // Updated log message
+    console.log(`[MQTT] Attempting to connect to ${mqttBroker}:${mqttPort} using WebSocket`); // Updated log message
 
     // Validate port before connecting
     const parsedPort = parseInt(mqttPort, 10);
@@ -179,13 +179,12 @@ export default function Home() {
         return; // Stop connection attempt
     }
 
-    // Initialize MQTT client in the browser environment
-    // Let mqtt.js handle the protocol determination for browser environments
+    // Initialize MQTT client in the browser environment, specifying WebSocket protocol
     mqttClientRef.current = mqtt.connect({
         host: mqttBroker,
         port: parsedPort, // Use parsed port
         clientId: mqttClientId,
-        // protocol: 'mqtt' // REMOVED this line to allow default WebSocket attempt
+        protocol: 'ws' // Explicitly set the protocol to WebSocket
     });
     console.log("[MQTT] Client Ref after connect:", mqttClientRef.current); // Log ref value
 
