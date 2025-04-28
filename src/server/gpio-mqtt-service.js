@@ -69,7 +69,7 @@ try {
         }
     }); 
     
-} // <<< Added Missing Closing Brace for TRY block here
+} // Closing brace for TRY block
 catch (error) {
     console.error("[GPIO-MQTT] Failed to initialize MQTT client:", error);
     // Don't exit immediately, try to setup GPIO if possible
@@ -154,8 +154,9 @@ function deactivateRejectOutput() {
 // --- Graceful Shutdown ---
 
 function cleanupAndExit() {
-    console.log('
-[GPIO-MQTT] Shutting down GPIO-MQTT service...');
+    // Use backticks for the multi-line string
+    console.log(`
+[GPIO-MQTT] Shutting down GPIO-MQTT service...`); 
     if (productSensorInput) {
         productSensorInput.unexport();
         console.log(`[GPIO-MQTT] GPIO ${PRODUCT_SENSOR_PIN_BCM} unexported.`);
