@@ -67,11 +67,12 @@ try {
                 deactivateRejectOutput();
             }
         }
-    });
+    }); // <<< This closing brace was likely the issue if it was misplaced before
 
 } catch (error) {
     console.error("[GPIO-MQTT] Failed to initialize MQTT client:", error);
-    process.exit(1); // Exit if MQTT fails to initialize
+    // Don't exit immediately, try to setup GPIO if possible
+    // process.exit(1);
 }
 
 // --- GPIO Setup ---
