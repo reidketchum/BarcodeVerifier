@@ -67,9 +67,10 @@ try {
                 deactivateRejectOutput();
             }
         }
-    }); // <<< This closing brace was likely the issue if it was misplaced before
-
-} catch (error) {
+    }); 
+    
+} // <<< Added Missing Closing Brace for TRY block here
+catch (error) {
     console.error("[GPIO-MQTT] Failed to initialize MQTT client:", error);
     // Don't exit immediately, try to setup GPIO if possible
     // process.exit(1);
