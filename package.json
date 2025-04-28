@@ -10,7 +10,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "gpio-service": "node src/server/gpio-mqtt-service.js"  /* Added script for GPIO service */
+    "gpio-service": "node src/server/gpio-mqtt-service.js"
   },
   "dependencies": {
     "@genkit-ai/googleai": "^1.0.4",
@@ -45,7 +45,7 @@
     "genkit": "^1.0.4",
     "lucide-react": "^0.475.0",
     "next": "15.2.3",
-    "onoff": "^6.0.0", /* Added onoff */
+    "onoff": "^6.0.0",
     "patch-package": "^8.0.0",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
@@ -55,7 +55,7 @@
     "tailwind-merge": "^3.0.1",
     "tailwindcss-animate": "^1.0.7",
     "zod": "^3.24.2",
-    "mqtt": "^5.7.1" /* Added mqtt as production dependency */
+    "mqtt": "^5.7.1"
   },
   "devDependencies": {
     "@types/node": "^20",
