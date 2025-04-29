@@ -1,3 +1,5 @@
+console.log('>>> local-app.js execution started <<<'); // Add this line at the very top
+
 // local-app.js - Standalone Node.js TUI Application
 
 const fs = require('fs');
@@ -134,6 +136,7 @@ let productSensorInput = null;
 let rejectOutput = null;
 
 function initializeGpio() {
+    console.log("[GPIO] Initialize function called."); // Log entry
     try {
         if (!Gpio.accessible) {
             console.error("[GPIO] GPIO is not accessible on this system. Service cannot run.");
@@ -146,10 +149,12 @@ function initializeGpio() {
         unexportPin(settings.rejectOutputPin);
 
         // Initialize Product Sensor Input Pin
+        console.log(`[GPIO] Attempting to initialize pin ${settings.productSensorPin} for input...`);
         productSensorInput = new Gpio(settings.productSensorPin, 'in', 'both', { debounceTimeout: 10 });
         console.log(`[GPIO] GPIO ${settings.productSensorPin} initialized for input.`);
 
         // Initialize Reject Output Pin
+        console.log(`[GPIO] Attempting to initialize pin ${settings.rejectOutputPin} for output...`);
         rejectOutput = new Gpio(settings.rejectOutputPin, 'out');
         console.log(`[GPIO] GPIO ${settings.rejectOutputPin} initialized for output.`);
         rejectOutput.writeSync(0); // Ensure low initially
@@ -395,8 +400,9 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // --- Initialization ---
 loadSettings();
-initializeGpio(); // Initialize GPIO
-connectMqtt();    // Connect to MQTT
+// Temporarily comment out GPIO/MQTT init for basic script execution test
+// initializeGpio(); 
+// connectMqtt();    
 setupTUI();      // Placeholder for TUI setup
 
 console.log('[App] Local application started.');
