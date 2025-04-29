@@ -19,7 +19,7 @@ function loadSettings() {
             settings = JSON.parse(rawData.toString());
             console.log("[App] Settings loaded successfully:", settings);
         } else {
-            console.warn(`[App] Settings file not found at ${SETTINGS_FILE}. Using defaults (if any defined in script).`);
+            console.warn(`[App] Settings file not found at ${SETTINGS_FILE}. Using defaults.`);
             settings = {
                 mqttBroker: "192.168.5.5",
                 mqttPort: 1883,
@@ -40,7 +40,7 @@ function loadSettings() {
 function saveSettings() {
     try {
         console.log(`[App] Saving settings to ${SETTINGS_FILE}`);
-        fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2)); // Pretty print JSON
+        fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
     } catch (error) {
         console.error("[App] Error saving settings:", error);
     }
@@ -213,8 +213,7 @@ process.stdin.on('readable', () => {
       cleanupAndExit(0);
     }
     // Corrected check for Enter key
-    if (chunk === '' || chunk === '
-') { // Enter key (Carriage Return or Newline)
+    if (chunk === '\r' || chunk === '\n') { // Enter key (Carriage Return or Newline)
         handleScan(barcodeBuffer.trim());
         barcodeBuffer = '';
     } else {
@@ -261,8 +260,7 @@ function publishMqttMessage(client, topic, message) {
 
 // --- TUI Placeholder --- 
 function setupTUI() {
-    console.log("
---- TUI Placeholder ---");
+    console.log("--- TUI Placeholder ---");
     console.log("TODO: Implement Terminal User Interface here.");
     console.log("Press Ctrl+C to exit.");
     setInterval(() => {
