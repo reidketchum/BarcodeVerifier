@@ -20,7 +20,6 @@ function loadSettings() {
             console.log("[App] Settings loaded successfully:", settings);
         } else {
             console.warn(`[App] Settings file not found at ${SETTINGS_FILE}. Using defaults (if any defined in script).`);
-            // Define default settings here if file doesn't exist
             settings = {
                 mqttBroker: "192.168.5.5",
                 mqttPort: 1883,
@@ -48,7 +47,6 @@ function saveSettings() {
 }
 
 // --- Global State (Simulated UI State) ---
-// In a real TUI app, these would update UI elements
 let currentMqttStatus = 'Disconnected';
 let lastBarcode = null;
 let lastResult = null;
@@ -64,13 +62,10 @@ function connectMqtt() {
         return;
     }
     if (mqttClient) {
-        mqttClient.end(true); // End previous connection if any
+        mqttClient.end(true); 
     }
-
     console.log(`[MQTT] Attempting connection to mqtt://${settings.mqttBroker}:${settings.mqttPort}`);
     currentMqttStatus = 'Connecting...';
-    // TODO: Update TUI with status
-
     mqttClient = mqtt.connect(`mqtt://${settings.mqttBroker}:${settings.mqttPort}`, { 
         clientId: settings.mqttClientId,
         connectTimeout: 5000,
@@ -80,51 +75,33 @@ function connectMqtt() {
     mqttClient.on('connect', () => {
         console.log(`[MQTT] Connected to MQTT Broker: ${settings.mqttBroker}:${settings.mqttPort}`);
         currentMqttStatus = 'Connected';
-        // TODO: Update TUI
-        // Subscribe to necessary topics (e.g., commands)
         mqttClient.subscribe(REJECT_OUTPUT_COMMAND_TOPIC, (err) => {
-            if (!err) {
-                console.log(`[MQTT] Subscribed to topic: ${REJECT_OUTPUT_COMMAND_TOPIC}`);
-            } else {
-                console.error(`[MQTT] Failed to subscribe to ${REJECT_OUTPUT_COMMAND_TOPIC}:`, err);
-            }
+            if (!err) console.log(`[MQTT] Subscribed to topic: ${REJECT_OUTPUT_COMMAND_TOPIC}`);
+            else console.error(`[MQTT] Failed to subscribe to ${REJECT_OUTPUT_COMMAND_TOPIC}:`, err);
         });
     });
-
     mqttClient.on('error', (err) => {
         console.error('[MQTT] Connection Error:', err);
         currentMqttStatus = 'Error';
-        // TODO: Update TUI with error
     });
-
     mqttClient.on('close', () => {
         console.log('[MQTT] Client Disconnected.');
         currentMqttStatus = 'Disconnected';
-        // TODO: Update TUI
     });
-
     mqttClient.on('offline', () => {
         console.warn('[MQTT] Client Offline');
         currentMqttStatus = 'Disconnected';
-        // TODO: Update TUI
     });
-
     mqttClient.on('reconnect', () => {
         console.log('[MQTT] Client Attempting Reconnect');
         currentMqttStatus = 'Connecting...';
-        // TODO: Update TUI
     });
-
-    // Handle incoming commands for reject output
     mqttClient.on('message', (topic, message) => {
         console.log(`[MQTT] Received message on topic ${topic}: ${message.toString()}`);
         if (topic === REJECT_OUTPUT_COMMAND_TOPIC) {
             const command = message.toString().toUpperCase();
-            if (command === 'ACTIVATE') {
-                activateRejectOutput();
-            } else if (command === 'DEACTIVATE') {
-                deactivateRejectOutput();
-            }
+            if (command === 'ACTIVATE') activateRejectOutput();
+            else if (command === 'DEACTIVATE') deactivateRejectOutput();
         }
     });
 }
@@ -136,45 +113,34 @@ let productSensorInput = null;
 let rejectOutput = null;
 
 function initializeGpio() {
-    console.log("[GPIO] Initialize function called."); // Log entry
+    console.log("[GPIO] Initialize function called.");
     try {
         if (!Gpio.accessible) {
-            console.error("[GPIO] GPIO is not accessible on this system. Service cannot run.");
+            console.error("[GPIO] GPIO is not accessible. Service cannot run.");
             cleanupAndExit(1);
             return;
         }
         console.log("[GPIO] Initializing GPIO...");
-
         unexportPin(settings.productSensorPin);
         unexportPin(settings.rejectOutputPin);
 
-        // Initialize Product Sensor Input Pin
-        console.log(`[GPIO] Attempting to initialize pin ${settings.productSensorPin} for input...`);
         productSensorInput = new Gpio(settings.productSensorPin, 'in', 'both', { debounceTimeout: 10 });
         console.log(`[GPIO] GPIO ${settings.productSensorPin} initialized for input.`);
-
-        // Initialize Reject Output Pin
-        console.log(`[GPIO] Attempting to initialize pin ${settings.rejectOutputPin} for output...`);
         rejectOutput = new Gpio(settings.rejectOutputPin, 'out');
         console.log(`[GPIO] GPIO ${settings.rejectOutputPin} initialized for output.`);
-        rejectOutput.writeSync(0); // Ensure low initially
+        rejectOutput.writeSync(0);
         rejectOutputState = 'Inactive';
-        // TODO: Update TUI
 
-        // Watch for sensor changes
         productSensorInput.watch((err, value) => {
             if (err) {
                 console.error('[GPIO] Watch Error:', err);
                 return;
             }
-            const newState = value === 1; // Assuming 1 = detected
+            const newState = value === 1;
             if (newState !== isCaseDetected) {
                  isCaseDetected = newState;
                  const stateString = isCaseDetected ? 'detected' : 'not detected';
                  console.log(`[GPIO] GPIO ${settings.productSensorPin} state changed to: ${stateString} (value: ${value})`);
-                 // TODO: Update TUI with sensor state
-                 
-                 // Publish state to MQTT
                  if (mqttClient && mqttClient.connected) {
                      mqttClient.publish(PRODUCT_SENSOR_TOPIC, stateString, { qos: 1 }, (publishErr) => {
                          if (publishErr) console.error('[MQTT] Failed to publish sensor state:', publishErr);
@@ -183,18 +149,13 @@ function initializeGpio() {
                  } else {
                      console.warn('[MQTT] Client not connected, cannot publish sensor state.');
                  }
-
-                 // Reset barcode/result if case is no longer detected
                  if (!isCaseDetected) {
                     lastBarcode = null;
                     lastResult = null;
-                    // TODO: Update TUI
                  }
             }
         });
-
         console.log('[GPIO] Initialization complete. Watching GPIO pin...');
-
     } catch (error) {
         console.error("[GPIO] Failed to initialize GPIO:", error);
         cleanupAndExit(1);
@@ -223,9 +184,6 @@ function activateRejectOutput() {
         console.log('[GPIO] Activating reject output (GPIO HIGH)');
         rejectOutput.writeSync(1);
         rejectOutputState = 'Active';
-        // TODO: Update TUI
-
-        // Deactivate after delay
         setTimeout(() => {
             deactivateRejectOutput();
         }, settings.rejectDelay || 3000);
@@ -239,17 +197,15 @@ function deactivateRejectOutput() {
         console.log('[GPIO] Deactivating reject output (GPIO LOW)');
         rejectOutput.writeSync(0);
         rejectOutputState = 'Inactive';
-        // TODO: Update TUI
     } else {
         console.warn('[GPIO] Reject output GPIO not initialized.');
     }
 }
 
-// --- Barcode Scanning (Simulated via Keyboard for now) ---
-// TODO: Implement direct USB scanner reading if needed for headless operation
+// --- Barcode Scanning ---
 let barcodeBuffer = '';
 process.stdin.setEncoding('utf8');
-process.stdin.setRawMode(true); // Read char by char
+process.stdin.setRawMode(true);
 process.stdin.on('readable', () => {
   let chunk;
   while ((chunk = process.stdin.read()) !== null) {
@@ -276,18 +232,13 @@ function handleScan(scannedBarcode) {
         // TODO: Update TUI
         return;
     }
-
     console.log("[App] handleScan called with:", scannedBarcode);
     lastBarcode = scannedBarcode;
     const isValid = isValidGTIN(scannedBarcode);
     lastResult = isValid ? "PASS" : "FAIL";
     console.log(`[App] Verification Result: ${lastResult}`);
     // TODO: Update TUI
-
-    // Publish result
     publishMqttMessage(mqttClient, settings.mqttVerifyTopic, lastResult);
-
-    // Trigger reject if needed
     if (!isValid) {
         activateRejectOutput();
     }
@@ -309,18 +260,11 @@ function publishMqttMessage(client, topic, message) {
 }
 
 // --- TUI Placeholder --- 
-// TODO: Implement TUI using a library like 'blessed'
-// This section should create the screen, dashboard elements, settings menu, etc.
-// It should read the global state variables (currentMqttStatus, lastBarcode, etc.)
-// and update the displayed elements.
-// It should also handle user input for menu navigation and settings changes.
-
 function setupTUI() {
     console.log("
 --- TUI Placeholder ---");
     console.log("TODO: Implement Terminal User Interface here.");
     console.log("Press Ctrl+C to exit.");
-    // Example: Periodically log status to simulate dashboard update
     setInterval(() => {
         console.log(`Status Update | MQTT: ${currentMqttStatus} | Sensor: ${isCaseDetected ? 'Detected' : 'Not Detected'} | Reject: ${rejectOutputState} | Last Scan: ${lastBarcode || 'None'} | Result: ${lastResult || 'N/A'}`);
     }, 5000);
@@ -335,15 +279,12 @@ function cleanupAndExit(exitCode = 0) {
 [App] Shutting down... (Exit Code: ${exitCode})`);
     let mqttClosed = false;
     let gpioCleaned = false;
-
     const attemptExit = () => {
         if (mqttClosed && gpioCleaned) {
             console.log("[App] Cleanup complete. Exiting.");
             process.exit(exitCode);
         }
     };
-
-    // Cleanup GPIO
     try {
         if (productSensorInput) {
             productSensorInput.unwatchAll();
@@ -358,17 +299,15 @@ function cleanupAndExit(exitCode = 0) {
         gpioCleaned = true;
     } catch (err) {
         console.error("[GPIO] Error during cleanup:", err);
-        gpioCleaned = true; // Mark as done anyway
+        gpioCleaned = true;
     }
-
-    // Cleanup MQTT
     if (mqttClient) {
         mqttClient.end(true, () => {
             console.log('[MQTT] Client disconnected.');
             mqttClosed = true;
             attemptExit();
         });
-        setTimeout(() => { // Timeout for MQTT cleanup
+        setTimeout(() => {
             if (!mqttClosed) {
                 console.warn('[MQTT] Client did not close gracefully, forcing exit.');
                 mqttClosed = true;
@@ -378,13 +317,10 @@ function cleanupAndExit(exitCode = 0) {
     } else {
         mqttClosed = true;
     }
-
-    // Restore terminal mode
     if (process.stdin.isRaw) {
          process.stdin.setRawMode(false);
     }
     process.stdin.pause();
-
     attemptExit();
 }
 
