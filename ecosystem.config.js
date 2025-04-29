@@ -3,25 +3,16 @@
 module.exports = {
   apps : [
     {
-      name      : 'NextApp', // Name for the Next.js app in PM2
-      script    : 'npm',
-      args      : 'start',
-      cwd       : '.', // Current working directory
-      env: {
-        NODE_ENV: 'production'
-      }
-    },
-    {
-      name      : 'GpioService', // Name for the background GPIO service in PM2
-      script    : 'src/server/gpio-mqtt-service.js',
-      cwd       : '.', // Current working directory
-      // You might need to run this service with higher privileges for GPIO access
-      // Consider using 'sudo -E node src/server/gpio-mqtt-service.js' if needed
-      // or configuring user permissions for GPIO access.
+      name        : 'LocalBarcodeVerifier', // Name for the local TUI app in PM2
+      script      : 'local-app.js',
+      cwd         : '.', // Current working directory
       interpreter : 'node',
+      // Ensure correct user/permissions for GPIO if needed.
+      // You might need to configure PM2 user or run PM2 with sudo initially.
       env: {
-        NODE_ENV: 'production'
+        NODE_ENV: 'production' // Or 'development' as needed
       }
     }
+    // Removed the NextApp entry
   ]
 };

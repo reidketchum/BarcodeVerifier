@@ -1,0 +1,9 @@
+{
+  "mqttBroker": "192.168.5.5",
+  "mqttPort": 1883,
+  "mqttVerifyTopic": "Tekpak/F6/BarcodeVerifier",
+  "mqttClientId": "PiLocalApp",
+  "rejectDelay": 3000,
+  "productSensorPin": 17,
+  "rejectOutputPin": 27
+}
