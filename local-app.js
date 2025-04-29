@@ -256,8 +256,9 @@ process.stdin.on('readable', () => {
     if (chunk === '\u0003') { // Ctrl+C
       cleanupAndExit(0);
     }
+    // Corrected check for Enter key
     if (chunk === '' || chunk === '
-') { // Enter key
+') { // Enter key (Carriage Return or Newline)
         handleScan(barcodeBuffer.trim());
         barcodeBuffer = '';
     } else {
@@ -400,9 +401,8 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // --- Initialization ---
 loadSettings();
-// Temporarily comment out GPIO/MQTT init for basic script execution test
-// initializeGpio(); 
-// connectMqtt();    
+initializeGpio(); // Initialize GPIO
+connectMqtt();    // Connect to MQTT
 setupTUI();      // Placeholder for TUI setup
 
 console.log('[App] Local application started.');
