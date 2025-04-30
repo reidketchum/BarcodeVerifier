@@ -10,9 +10,11 @@
   },
   "dependencies": {
     "onoff": "^6.0.0",
-    "mqtt": "^5.7.1"
+    "mqtt": "^5.7.1",
+    "blessed": "^0.1.81" 
   },
   "devDependencies": {
-    "@types/node": "^20"
+    "@types/node": "^20",
+    "@types/blessed": "^0.1.25" 
   }
 }
