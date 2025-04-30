@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const mqtt = require('mqtt');
 const blessed = require('blessed');
-// const { Gpio } = require('onoff'); // Keep GPIO disabled for now
+const rpio = require('rpio'); // Use rpio
 
 // --- Configuration Loading & Saving ---
 const SETTINGS_FILE = path.join(__dirname, 'settings.json');
@@ -26,7 +26,10 @@ function loadSettings() {
                 mqttPort: 1883,
                 mqttVerifyTopic: "Tekpak/F6/BarcodeVerifier",
                 mqttClientId: "PiLocalApp",
-                rejectDelay: 3000
+                rejectDelay: 3000,
+                // Add default pins back for rpio
+                productSensorPin: 17, 
+                rejectOutputPin: 27
             };
             saveSettings();
         }
@@ -36,6 +39,8 @@ function loadSettings() {
         settings.mqttVerifyTopic = settings.mqttVerifyTopic || "Tekpak/F6/BarcodeVerifier";
         settings.mqttClientId = settings.mqttClientId || "PiLocalApp";
         settings.rejectDelay = settings.rejectDelay || 3000;
+        settings.productSensorPin = settings.productSensorPin || 17;
+        settings.rejectOutputPin = settings.rejectOutputPin || 27;
 
     } catch (error) {
         console.error(`[App] Error loading settings:`, error);
@@ -46,8 +51,7 @@ function loadSettings() {
 function saveSettings() {
     try {
         console.log(`[App] Saving settings to ${SETTINGS_FILE}`);
-        delete settings.productSensorPin; 
-        delete settings.rejectOutputPin;
+        // Save pins as they are part of settings
         fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
     } catch (error) {
         console.error(`[App] Error saving settings:`, error);
@@ -62,21 +66,22 @@ let logBox;
 let mqttStatusElement;
 let lastBarcodeElement;
 let lastResultElement;
-let caseDetectedElement; // Re-add for placeholder
-let rejectStateElement;  // Re-add for placeholder
+let caseDetectedElement; // Re-add for display
+let rejectStateElement;  // Re-add for display
 let settingsForm;
-let brokerInput, portInput, topicInput, clientIdInput, delayInput;
+let brokerInput, portInput, topicInput, clientIdInput, delayInput, sensorPinInput, rejectPinInput;
 
 // --- Global State ---
 let currentMqttStatus = 'Disconnected';
 let lastBarcode = null;
 let lastResult = null;
-// Add back for TUI display, even if not driven by real GPIO yet
-let isCaseDetected = false; 
-let rejectOutputState = 'Inactive';
+let isCaseDetected = false; // Updated by rpio
+let rejectOutputState = 'Inactive'; // Updated by rpio
 
 // --- MQTT Client Setup ---
 let mqttClient = null;
+const PRODUCT_SENSOR_TOPIC = "Tekpak/F6/ProductSensor/State"; // Topic for publishing sensor state
+const REJECT_OUTPUT_COMMAND_TOPIC = "Tekpak/F6/RejectOutput/Command"; // Topic for subscribing to reject command
 
 function connectMqtt() {
     if (mqttClient && mqttClient.connected) { return; }
@@ -96,6 +101,11 @@ function connectMqtt() {
     mqttClient.on('connect', () => {
         log(`[MQTT] Connected to MQTT Broker: ${settings.mqttBroker}:${settings.mqttPort}`);
         updateMqttStatus('Connected');
+        // Subscribe to the command topic for the reject output
+        mqttClient.subscribe(REJECT_OUTPUT_COMMAND_TOPIC, { qos: 1 }, (err) => {
+            if (!err) log(`[MQTT] Subscribed to topic: ${REJECT_OUTPUT_COMMAND_TOPIC}`);
+            else log(`[MQTT] Failed to subscribe to ${REJECT_OUTPUT_COMMAND_TOPIC}: ${err.message}`);
+        });
     });
     mqttClient.on('error', (err) => {
         log(`[MQTT] Connection Error: ${err.message}`);
@@ -111,11 +121,96 @@ function connectMqtt() {
     });
 }
 
-// --- GPIO Setup & Logic (Removed) ---
+// --- GPIO Setup & Logic (using rpio) ---
 
-// --- Barcode Scanning (using stdin) ---
+function initializeGpio() {
+    log("[GPIO] Initialize function called.");
+    try {
+        // rpio does not use /sys/class/gpio directly for export/unexport
+        // It uses memory-mapped access or /dev/gpiomem
+        // Permissions are still needed (user in gpio group or sudo)
+
+        log(`[GPIO] Attempting to initialize pin ${settings.productSensorPin} as input...`);
+        rpio.open(settings.productSensorPin, rpio.INPUT, rpio.PULL_UP); // Or PULL_DOWN depending on sensor wiring
+        log(`[GPIO] GPIO ${settings.productSensorPin} initialized for input.`);
+
+        log(`[GPIO] Attempting to initialize pin ${settings.rejectOutputPin} as output...`);
+        rpio.open(settings.rejectOutputPin, rpio.OUTPUT, rpio.LOW); // Initialize low
+        log(`[GPIO] GPIO ${settings.rejectOutputPin} initialized for output.`);
+        rejectOutputState = 'Inactive';
+
+        // Set up polling for the input pin (rpio does not have direct 'watch' like onoff)
+        // Poll faster than the UI update interval
+        const pollInterval = setInterval(() => {
+            const value = rpio.read(settings.productSensorPin);
+            const newState = value === 1; // Assuming 1 = detected based on PULL_UP/DOWN and sensor
+
+            if (newState !== isCaseDetected) {
+                 isCaseDetected = newState;
+                 const stateString = isCaseDetected ? 'detected' : 'not detected';
+                 log(`[GPIO] GPIO ${settings.productSensorPin} state changed to: ${stateString} (value: ${value})`);
+                 updateSensorStateDisplay(); // Update TUI
+                 
+                 if (mqttClient && mqttClient.connected) {
+                     mqttClient.publish(PRODUCT_SENSOR_TOPIC, stateString, { qos: 1 }, (publishErr) => {
+                         if (publishErr) log(`[MQTT] Failed to publish sensor state: ${publishErr.message || publishErr}`);
+                         else log(`[MQTT] Published state '${stateString}' to ${PRODUCT_SENSOR_TOPIC}`);
+                     });
+                 } else {
+                     log('[MQTT] Client not connected, cannot publish sensor state.');
+                 }
+
+                 if (!isCaseDetected) {
+                    lastBarcode = null;
+                    lastResult = null;
+                    updateLastBarcode(null);
+                    updateLastResult(null);
+                 }
+            }
+        }, 50); // Poll every 50ms
+
+        // Store interval ID for cleanup
+        rpio.pollIntervalId = pollInterval;
+
+        log('[GPIO] Initialization complete. Polling GPIO pin...');
+
+    } catch (error) {
+        log(`[GPIO] Failed to initialize GPIO: ${error.message}`);
+        console.error(error); // Log full error to stderr
+        // cleanupAndExit(1); // Don't exit on GPIO error, allow MQTT/TUI to run
+    }
+}
+
+function activateRejectOutput() {
+    if (rpio.read(settings.rejectOutputPin) === 0) { // Check if currently low
+        log('[GPIO] Activating reject output (GPIO HIGH)');
+        rpio.write(settings.rejectOutputPin, rpio.HIGH);
+        rejectOutputState = 'Active';
+        updateRejectStateDisplay(); // Update TUI
+
+        // Deactivate after delay
+        setTimeout(() => {
+            deactivateRejectOutput();
+        }, settings.rejectDelay || 3000);
+    } else {
+         log('[GPIO] Reject output already active.');
+    }
+}
+
+function deactivateRejectOutput() {
+     if (rpio.read(settings.rejectOutputPin) === 1) { // Check if currently high
+        log('[GPIO] Deactivating reject output (GPIO LOW)');
+        rpio.write(settings.rejectOutputPin, rpio.LOW);
+        rejectOutputState = 'Inactive';
+        updateRejectStateDisplay(); // Update TUI
+     } else {
+         log('[GPIO] Reject output already inactive.');
+     }
+}
+
+// --- Barcode Scanning ---
 let barcodeBuffer = '';
-let inputCaptureActive = true; // To control when stdin is processed
+let inputCaptureActive = true; 
 
 function setupInputHandling() {
     process.stdin.setEncoding('utf8');
@@ -131,12 +226,12 @@ function setupInputHandling() {
             cleanupAndExit(0);
           }
           if (inputCaptureActive) {
-              if (chunk === '\n' || chunk === '\r') { // Enter key
+              if (chunk === '\r' || chunk === '\n') { // Enter key
                   handleScan(barcodeBuffer.trim());
                   barcodeBuffer = '';
               } else {
                   barcodeBuffer += chunk;
-                  log(`Key pressed: ${chunk === '\r' ? '<Enter>' : JSON.stringify(chunk)}`); 
+                  // log(`Key pressed: ${chunk === '\r' ? '<Enter>' : JSON.stringify(chunk)}`); // Optional: log key presses
               }
           } 
         }
@@ -152,7 +247,21 @@ function handleScan(scannedBarcode) {
     updateLastBarcode(scannedBarcode);
     const isValid = isValidGTIN(scannedBarcode);
     updateLastResult(isValid ? "PASS" : "FAIL");
-    publishMqttMessage(mqttClient, settings.mqttVerifyTopic, lastResult);
+    // Publish result
+    if (mqttClient && mqttClient.connected) {
+        publishMqttMessage(mqttClient, settings.mqttVerifyTopic, lastResult);
+    } else {
+        log('[MQTT] Client not connected, cannot publish verify result.');
+    }
+    // Trigger reject if needed (send command via MQTT)
+    if (!isValid) {
+        log('[App] Scan failed, sending ACTIVATE command for reject output.');
+        if (mqttClient && mqttClient.connected) {
+            publishMqttMessage(mqttClient, REJECT_OUTPUT_COMMAND_TOPIC, "ACTIVATE");
+        } else {
+             log('[MQTT] Client not connected, cannot send reject command.');
+        }
+    }
 }
 
 function isValidGTIN(barcode) {
@@ -170,7 +279,7 @@ function publishMqttMessage(client, topic, message) {
     }
 }
 
-// --- TUI Implementation --- 
+// --- TUI Implementation ---
 
 function setupTUI() {
     screen = blessed.screen({
@@ -201,8 +310,9 @@ function setupTUI() {
     });
 
     mqttStatusElement = blessed.text({ parent: dashboardBox, top: 1, left: 2, content: `MQTT Status: ${currentMqttStatus}` });
-    caseDetectedElement = blessed.text({ parent: dashboardBox, top: 2, left: 2, content: `Sensor State: ${isCaseDetected ? 'Detected' : 'Not Detected'} (Simulated)`});
-    rejectStateElement = blessed.text({ parent: dashboardBox, top: 3, left: 2, content: `Reject State: ${rejectOutputState} (Simulated)`});
+    // Update these to reflect rpio state
+    caseDetectedElement = blessed.text({ parent: dashboardBox, top: 2, left: 2, content: `Sensor State: ${isCaseDetected ? 'Detected' : 'Not Detected'}`}); 
+    rejectStateElement = blessed.text({ parent: dashboardBox, top: 3, left: 2, content: `Reject State: ${rejectOutputState}`}); 
     lastBarcodeElement = blessed.text({ parent: dashboardBox, top: 5, left: 2, height: 2, width: '90%', content: `Last Barcode: ${lastBarcode || 'None'}`});
     lastResultElement = blessed.text({ parent: dashboardBox, top: 7, left: 2, content: `Last Result: ${lastResult || 'N/A'}`});
 
@@ -228,11 +338,11 @@ function setupTUI() {
     });
 
     let currentTop = 0;
-    const addSetting = (label, initialValue) => {
+    const addSetting = (label, initialValue, name) => {
         blessed.text({ parent: settingsForm, top: currentTop, left: 0, content: label });
         const input = blessed.textbox({
             parent: settingsForm,
-            name: label.toLowerCase().replace(/[^a-z0-9]/g, ''), // Simple name for form data
+            name: name, // Use provided name
             inputOnFocus: true,
             height: 1,
             width: '60%',
@@ -248,11 +358,14 @@ function setupTUI() {
         return input;
     };
 
-    brokerInput = addSetting('Broker Addr:', settings.mqttBroker);
-    portInput = addSetting('Broker Port:', settings.mqttPort);
-    topicInput = addSetting('Verify Topic:', settings.mqttVerifyTopic);
-    clientIdInput = addSetting('Client ID:', settings.mqttClientId);
-    delayInput = addSetting('Reject Delay:', settings.rejectDelay);
+    // Use explicit names for settings inputs
+    brokerInput = addSetting('Broker Addr:', settings.mqttBroker, 'mqttBroker');
+    portInput = addSetting('Broker Port:', settings.mqttPort, 'mqttPort');
+    topicInput = addSetting('Verify Topic:', settings.mqttVerifyTopic, 'mqttVerifyTopic');
+    clientIdInput = addSetting('Client ID:', settings.mqttClientId, 'mqttClientId');
+    delayInput = addSetting('Reject Delay:', settings.rejectDelay, 'rejectDelay');
+    sensorPinInput = addSetting('Sensor Pin:', settings.productSensorPin, 'productSensorPin'); // Add pin settings to UI
+    rejectPinInput = addSetting('Reject Pin:', settings.rejectOutputPin, 'rejectOutputPin'); // Add pin settings to UI
 
     const submitButton = blessed.button({
         parent: settingsForm,
@@ -274,17 +387,29 @@ function setupTUI() {
 
     settingsForm.on('submit', (data) => {
         log("[App] Settings form submitted:", data);
-        settings.mqttBroker = data['brokeraddr'] || settings.mqttBroker;
-        settings.mqttPort = parseInt(data['brokerport'], 10) || settings.mqttPort;
-        settings.mqttVerifyTopic = data['verifytopic'] || settings.mqttVerifyTopic;
-        settings.mqttClientId = data['clientid'] || settings.mqttClientId;
-        settings.rejectDelay = parseInt(data['rejectdelay'], 10) || settings.rejectDelay;
+        // Update settings object from form data
+        settings.mqttBroker = data.mqttBroker || settings.mqttBroker;
+        settings.mqttPort = parseInt(data.mqttPort, 10) || settings.mqttPort;
+        settings.mqttVerifyTopic = data.mqttVerifyTopic || settings.mqttVerifyTopic;
+        settings.mqttClientId = data.clientId || settings.mqttClientId; // Corrected data key
+        settings.rejectDelay = parseInt(data.rejectDelay, 10) || settings.rejectDelay;
+        settings.productSensorPin = parseInt(data.productSensorPin, 10) || settings.productSensorPin; 
+        settings.rejectOutputPin = parseInt(data.rejectPin, 10) || settings.rejectOutputPin; // Corrected data key
+
         saveSettings();
-        log("[App] Settings saved. Reconnecting MQTT...");
+        log("[App] Settings saved. Reinitializing GPIO and Reconnecting MQTT...");
         updateSettingsDisplay(); 
+        // Reinitialize GPIO and reconnect MQTT with new settings
+        // Need to cleanup old GPIO first
+        if (rpioInitialized) { // Check if rpio was initialized
+             try{ rpio.exit(); log('[GPIO] rpio cleanup complete before reinit.'); } 
+             catch(e) { log(`[GPIO] Error during rpio cleanup before reinit: ${e.message}`); }
+             rpioInitialized = false;
+        }
+        initializeGpio(); 
         connectMqtt();
         inputCaptureActive = true; 
-        logBox.focus(); // Focus log after saving
+        logBox.focus(); 
         screen.render(); 
     });
 
@@ -310,7 +435,7 @@ function setupTUI() {
     });
     
     let focusIndex = 0;
-    const focusable = [logBox, settingsForm]; // Changed focus order
+    const focusable = [logBox, settingsForm]; 
     screen.key(['tab'], (ch, key) => {
          focusIndex = (focusIndex + 1) % focusable.length;
          focusable[focusIndex].focus();
@@ -336,7 +461,7 @@ function setupTUI() {
 
     updateUIDisplay();
     screen.render();
-    logBox.focus(); // Start focus on log
+    logBox.focus(); 
 }
 
 // --- UI Update Functions ---
@@ -364,6 +489,20 @@ function updateLastResult(result) {
     }
 }
 
+function updateSensorStateDisplay() {
+    if (caseDetectedElement) {
+         caseDetectedElement.setContent(`Sensor State: ${isCaseDetected ? 'Detected' : 'Not Detected'}`);
+         screen.render();
+    }
+}
+
+function updateRejectStateDisplay() {
+     if (rejectStateElement) {
+         rejectStateElement.setContent(`Reject State: ${rejectOutputState}`);
+         screen.render();
+    }
+}
+
 function updateSettingsDisplay() {
     if (!settingsForm) return;
     if (brokerInput) brokerInput.setValue(settings.mqttBroker);
@@ -371,6 +510,9 @@ function updateSettingsDisplay() {
     if (topicInput) topicInput.setValue(settings.mqttVerifyTopic);
     if (clientIdInput) clientIdInput.setValue(settings.mqttClientId);
     if (delayInput) delayInput.setValue(settings.rejectDelay.toString());
+    // Update pin input fields
+    if (sensorPinInput) sensorPinInput.setValue(settings.productSensorPin.toString());
+    if (rejectPinInput) rejectPinInput.setValue(settings.rejectOutputPin.toString());
 }
 
 // Central logging function
@@ -378,20 +520,19 @@ function log(...args) {
     const message = args.map(arg => (typeof arg === 'object' ? JSON.stringify(arg) : arg)).join(' ');
     console.log(message); // Keep logging to console for PM2 logs
     if (logBox) {
-        logBox.log(message); // Use logBox.log() method
-        // logBox handles scrolling automatically
-        screen.render(); // Render screen after adding log
+        logBox.log(message); 
+        screen.render(); 
     }
 }
 
-// Update all TUI elements
+// Update all TUI elements (initial setup uses this)
 function updateUIDisplay() {
     if (!screen) return; 
     updateMqttStatus(currentMqttStatus);
     updateLastBarcode(lastBarcode);
     updateLastResult(lastResult);
-    if(caseDetectedElement) caseDetectedElement.setContent(`Sensor State: ${isCaseDetected ? 'Detected' : 'Not Detected'} (Simulated)`);
-    if(rejectStateElement) rejectStateElement.setContent(`Reject State: ${rejectOutputState} (Simulated)`);
+    updateSensorStateDisplay();
+    updateRejectStateDisplay();
     updateSettingsDisplay();
     screen.render();
 }
@@ -404,25 +545,37 @@ function cleanupAndExit(exitCode = 0) {
     log(`
 [App] Shutting down... (Exit Code: ${exitCode})`);
     let mqttClosed = false;
+    let gpioCleaned = false; 
+
     const attemptExit = () => {
-        if (mqttClosed) { 
+        if (mqttClosed && gpioCleaned) { 
             log("[App] Cleanup complete. Exiting.");
             if (screen) screen.destroy();
             process.exit(exitCode);
         }
     };
     
-    const gpioCleaned = true; // GPIO is disabled
+    // Cleanup GPIO (using rpio)
+    log('[GPIO] Attempting GPIO cleanup...');
+    try {
+        rpio.exit(); // rpio cleanup
+        log('[GPIO] rpio cleanup complete.');
+        gpioCleaned = true;
+    } catch(err) {
+         log(`[GPIO] Error during rpio cleanup: ${err.message}`);
+         console.error(err); 
+         gpioCleaned = true; 
+    }
 
     if (mqttClient) {
         mqttClient.end(true, () => {
-            log('[MQTT] Client disconnected.');
+            log(`[MQTT] Client disconnected.`);
             mqttClosed = true;
             attemptExit();
         });
         setTimeout(() => {
             if (!mqttClosed) {
-                log('[MQTT] Client did not close gracefully, forcing exit.');
+                log(`[MQTT] Client did not close gracefully, forcing exit.`);
                 mqttClosed = true;
                 attemptExit();
             }
@@ -430,6 +583,7 @@ function cleanupAndExit(exitCode = 0) {
     } else {
         mqttClosed = true;
     }
+
     if (process.stdin.isTTY && process.stdin.isRaw) {
         try { 
              process.stdin.setRawMode(false);
@@ -456,7 +610,9 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // --- Initialization ---
 loadSettings();
+setupInputHandling(); // Setup stdin handling
 setupTUI(); // Setup TUI first
-connectMqtt(); // Connect to MQTT
+connectMqtt();    // Connect to MQTT
+initializeGpio(); // Initialize GPIO (using rpio)
 
-log('[App] Local application started (GPIO functionality disabled).');
+log('[App] Local application started.');
