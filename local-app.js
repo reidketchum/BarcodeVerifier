@@ -67,9 +67,6 @@ let rejectStateElement;  // Re-add for placeholder
 let settingsForm;
 let brokerInput, portInput, topicInput, clientIdInput, delayInput;
 
-let logMessages = [];
-const MAX_LOG_LINES = 100; // Limit log lines displayed
-
 // --- Global State ---
 let currentMqttStatus = 'Disconnected';
 let lastBarcode = null;
@@ -99,7 +96,6 @@ function connectMqtt() {
     mqttClient.on('connect', () => {
         log(`[MQTT] Connected to MQTT Broker: ${settings.mqttBroker}:${settings.mqttPort}`);
         updateMqttStatus('Connected');
-        // No subscriptions needed in this version
     });
     mqttClient.on('error', (err) => {
         log(`[MQTT] Connection Error: ${err.message}`);
@@ -134,20 +130,15 @@ function setupInputHandling() {
           if (chunk === '\u0003') { // Ctrl+C
             cleanupAndExit(0);
           }
-          // Only process barcode if input capture is active (not editing settings)
           if (inputCaptureActive) {
               if (chunk === '\n' || chunk === '\r') { // Enter key
                   handleScan(barcodeBuffer.trim());
                   barcodeBuffer = '';
               } else {
                   barcodeBuffer += chunk;
-                  // Optionally echo to log or a dedicated input display element in TUI
-                  log(`Key pressed: ${chunk}`); 
+                  log(`Key pressed: ${chunk === '\r' ? '<Enter>' : JSON.stringify(chunk)}`); 
               }
-          } else {
-             // Input is being handled by focused element (e.g., settings form)
-             // Blessed handles this automatically for form inputs
-          }
+          } 
         }
       } catch(e) {
           log(`[App] Error reading stdin: ${e.message}`);
@@ -185,21 +176,19 @@ function setupTUI() {
     screen = blessed.screen({
         smartCSR: true,
         title: 'Barcode Verifier TUI',
-        fullUnicode: true, // Support unicode characters
+        fullUnicode: true,
         autoPadding: true
     });
 
-    // Main layout box
     const layout = blessed.layout({
         parent: screen,
         top: 0,
         left: 0,
         width: '100%',
         height: '100%',
-        layout: 'grid' // Use grid layout
+        layout: 'grid'
     });
 
-    // --- Dashboard Box ---
     dashboardBox = blessed.box({
         parent: layout,
         label: ' Dashboard ',
@@ -212,12 +201,11 @@ function setupTUI() {
     });
 
     mqttStatusElement = blessed.text({ parent: dashboardBox, top: 1, left: 2, content: `MQTT Status: ${currentMqttStatus}` });
-    caseDetectedElement = blessed.text({ parent: dashboardBox, top: 2, left: 2, content: `Sensor State: ${isCaseDetected ? 'Detected' : 'Not Detected'} (Simulated)`}); // Placeholder
-    rejectStateElement = blessed.text({ parent: dashboardBox, top: 3, left: 2, content: `Reject State: ${rejectOutputState} (Simulated)`}); // Placeholder
+    caseDetectedElement = blessed.text({ parent: dashboardBox, top: 2, left: 2, content: `Sensor State: ${isCaseDetected ? 'Detected' : 'Not Detected'} (Simulated)`});
+    rejectStateElement = blessed.text({ parent: dashboardBox, top: 3, left: 2, content: `Reject State: ${rejectOutputState} (Simulated)`});
     lastBarcodeElement = blessed.text({ parent: dashboardBox, top: 5, left: 2, height: 2, width: '90%', content: `Last Barcode: ${lastBarcode || 'None'}`});
     lastResultElement = blessed.text({ parent: dashboardBox, top: 7, left: 2, content: `Last Result: ${lastResult || 'N/A'}`});
 
-    // --- Settings Box ---
     settingsBox = blessed.box({
         parent: layout,
         label: ' Settings (Press TAB to focus, ENTER to submit) ',
@@ -231,21 +219,20 @@ function setupTUI() {
 
     settingsForm = blessed.form({
         parent: settingsBox,
-        keys: true, // Enable key handling
-        vi: true, // Use vi keys if desired
+        keys: true,
+        vi: true,
         width: '95%',
         height: '80%',
         top: 1, 
         left: 2
     });
 
-    // Add form elements programmatically
     let currentTop = 0;
-    const addSetting = (label, initialValue, stateSetter) => {
+    const addSetting = (label, initialValue) => {
         blessed.text({ parent: settingsForm, top: currentTop, left: 0, content: label });
         const input = blessed.textbox({
             parent: settingsForm,
-            name: label.toLowerCase().replace(/ /g, ''),
+            name: label.toLowerCase().replace(/[^a-z0-9]/g, ''), // Simple name for form data
             inputOnFocus: true,
             height: 1,
             width: '60%',
@@ -255,8 +242,8 @@ function setupTUI() {
             border: { type: 'line' },
             style: { focus: { border: { fg: 'blue' } } }
         });
-        input.on('focus', () => inputCaptureActive = false);
-        input.on('blur', () => inputCaptureActive = true);
+        input.on('focus', () => { inputCaptureActive = false; screen.render(); });
+        input.on('blur', () => { inputCaptureActive = true; screen.render(); });
         currentTop += 2;
         return input;
     };
@@ -265,7 +252,7 @@ function setupTUI() {
     portInput = addSetting('Broker Port:', settings.mqttPort);
     topicInput = addSetting('Verify Topic:', settings.mqttVerifyTopic);
     clientIdInput = addSetting('Client ID:', settings.mqttClientId);
-    delayInput = addSetting('Reject Delay:', settings.rejectDelay); 
+    delayInput = addSetting('Reject Delay:', settings.rejectDelay);
 
     const submitButton = blessed.button({
         parent: settingsForm,
@@ -287,21 +274,20 @@ function setupTUI() {
 
     settingsForm.on('submit', (data) => {
         log("[App] Settings form submitted:", data);
-        settings.mqttBroker = data['brokeraddr:'] || settings.mqttBroker;
-        settings.mqttPort = parseInt(data['brokerport:'], 10) || settings.mqttPort;
-        settings.mqttVerifyTopic = data['verifytopic:'] || settings.mqttVerifyTopic;
-        settings.mqttClientId = data['clientid:'] || settings.mqttClientId;
-        settings.rejectDelay = parseInt(data['rejectdelay:'], 10) || settings.rejectDelay;
+        settings.mqttBroker = data['brokeraddr'] || settings.mqttBroker;
+        settings.mqttPort = parseInt(data['brokerport'], 10) || settings.mqttPort;
+        settings.mqttVerifyTopic = data['verifytopic'] || settings.mqttVerifyTopic;
+        settings.mqttClientId = data['clientid'] || settings.mqttClientId;
+        settings.rejectDelay = parseInt(data['rejectdelay'], 10) || settings.rejectDelay;
         saveSettings();
         log("[App] Settings saved. Reconnecting MQTT...");
-        updateSettingsDisplay(); // Update display immediately
-        connectMqtt(); // Reconnect with new settings
-        screen.render();
-        inputCaptureActive = true; // Ensure input capture is re-enabled
-        dashboardBox.focus(); // Return focus to dashboard or log
+        updateSettingsDisplay(); 
+        connectMqtt();
+        inputCaptureActive = true; 
+        logBox.focus(); // Focus log after saving
+        screen.render(); 
     });
 
-    // --- Log Box ---
     logBox = blessed.log({
         parent: layout,
         label: ' Log Output ',
@@ -319,26 +305,24 @@ function setupTUI() {
         style: { border: { fg: 'green' } }
     });
 
-    // --- Key Bindings ---
-    screen.key(['escape', 'q', 'C-c'], function(ch, key) {
+    screen.key(['escape', 'q', 'C-c'], (ch, key) => {
         return cleanupAndExit(0);
     });
     
-    // Basic focus switching (can be improved)
     let focusIndex = 0;
-    const focusable = [dashboardBox, settingsForm, logBox];
-    screen.key(['tab'], function(ch, key) {
+    const focusable = [logBox, settingsForm]; // Changed focus order
+    screen.key(['tab'], (ch, key) => {
          focusIndex = (focusIndex + 1) % focusable.length;
          focusable[focusIndex].focus();
-         // If focusing form, make sure first element gets focus
          if (focusable[focusIndex] === settingsForm) {
             settingsForm.focusFirst();
-            inputCaptureActive = false; // Disable barcode capture when form focused
+            inputCaptureActive = false;
          } else {
             inputCaptureActive = true;
          }
+         screen.render();
     });
-    screen.key(['S-tab'], function(ch, key) { // Shift+Tab
+    screen.key(['S-tab'], (ch, key) => {
         focusIndex = (focusIndex - 1 + focusable.length) % focusable.length;
         focusable[focusIndex].focus();
          if (focusable[focusIndex] === settingsForm) {
@@ -347,12 +331,12 @@ function setupTUI() {
          } else {
             inputCaptureActive = true;
          }
+         screen.render();
     });
 
-    // Initial render
-    updateUIDisplay(); // Update with initial state
+    updateUIDisplay();
     screen.render();
-    dashboardBox.focus(); // Start focus on dashboard
+    logBox.focus(); // Start focus on log
 }
 
 // --- UI Update Functions ---
@@ -381,6 +365,7 @@ function updateLastResult(result) {
 }
 
 function updateSettingsDisplay() {
+    if (!settingsForm) return;
     if (brokerInput) brokerInput.setValue(settings.mqttBroker);
     if (portInput) portInput.setValue(settings.mqttPort.toString());
     if (topicInput) topicInput.setValue(settings.mqttVerifyTopic);
@@ -388,28 +373,23 @@ function updateSettingsDisplay() {
     if (delayInput) delayInput.setValue(settings.rejectDelay.toString());
 }
 
-// Central logging function to update TUI log box
+// Central logging function
 function log(...args) {
     const message = args.map(arg => (typeof arg === 'object' ? JSON.stringify(arg) : arg)).join(' ');
     console.log(message); // Keep logging to console for PM2 logs
     if (logBox) {
-        logMessages.push(message);
-        if (logMessages.length > MAX_LOG_LINES) {
-            logMessages.shift(); // Remove oldest line
-        }
-        logBox.setLines(logMessages); // Use setLines for efficient updates
-        logBox.scroll(logMessages.length); // Scroll to bottom
-        screen.render();
+        logBox.log(message); // Use logBox.log() method
+        // logBox handles scrolling automatically
+        screen.render(); // Render screen after adding log
     }
 }
 
 // Update all TUI elements
 function updateUIDisplay() {
-    if (!screen) return; // TUI not setup yet
+    if (!screen) return; 
     updateMqttStatus(currentMqttStatus);
     updateLastBarcode(lastBarcode);
     updateLastResult(lastResult);
-    // Update placeholder GPIO displays if elements exist
     if(caseDetectedElement) caseDetectedElement.setContent(`Sensor State: ${isCaseDetected ? 'Detected' : 'Not Detected'} (Simulated)`);
     if(rejectStateElement) rejectStateElement.setContent(`Reject State: ${rejectOutputState} (Simulated)`);
     updateSettingsDisplay();
@@ -427,7 +407,7 @@ function cleanupAndExit(exitCode = 0) {
     const attemptExit = () => {
         if (mqttClosed) { 
             log("[App] Cleanup complete. Exiting.");
-            if (screen) screen.destroy(); // Destroy blessed screen
+            if (screen) screen.destroy();
             process.exit(exitCode);
         }
     };
@@ -465,7 +445,7 @@ process.on('SIGINT', () => cleanupAndExit(0));
 process.on('SIGTERM', () => cleanupAndExit(0));
 process.on('uncaughtException', (err) => {
     log(`[App] Uncaught Exception: ${err}`);
-    console.error(err); // Also log full error to stderr
+    console.error(err);
     cleanupAndExit(1);
 });
 process.on('unhandledRejection', (reason, promise) => {
@@ -478,6 +458,5 @@ process.on('unhandledRejection', (reason, promise) => {
 loadSettings();
 setupTUI(); // Setup TUI first
 connectMqtt(); // Connect to MQTT
-// initializeGpio(); // GPIO initialization is commented out
 
 log('[App] Local application started (GPIO functionality disabled).');
