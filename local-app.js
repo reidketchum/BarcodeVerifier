@@ -61,13 +61,18 @@ function connectMqtt() {
     if (mqttClient) {
         mqttClient.end(true);
     }
-    console.log(`[MQTT] Attempting connection to mqtt://${settings.mqttBroker}:${settings.mqttPort}`);
-    currentMqttStatus = 'Connecting...';
-    mqttClient = mqtt.connect(`mqtt://${settings.mqttBroker}:${settings.mqttPort}`, { 
+    
+    const connectUrl = `mqtt://${settings.mqttBroker}:${settings.mqttPort}`;
+    const options = {
         clientId: settings.mqttClientId,
-        connectTimeout: 5000,
-        reconnectPeriod: 5000
-    });
+        clean: true, // Start with a clean session
+        connectTimeout: 4000 // Slightly shorter timeout
+        // Removed reconnectPeriod to see if default behavior is better
+    };
+
+    console.log(`[MQTT] Attempting connection to ${connectUrl} with options:`, options);
+    currentMqttStatus = 'Connecting...';
+    mqttClient = mqtt.connect(connectUrl, options); // Use URL string and options object
 
     mqttClient.on('connect', () => {
         console.log(`[MQTT] Connected to MQTT Broker: ${settings.mqttBroker}:${settings.mqttPort}`);
@@ -85,10 +90,8 @@ function connectMqtt() {
         console.warn(`[MQTT] Client Offline`);
         currentMqttStatus = 'Disconnected';
     });
-    mqttClient.on('reconnect', () => {
-        console.log(`[MQTT] Client Attempting Reconnect`);
-        currentMqttStatus = 'Connecting...';
-    });
+    // Removed reconnect listener to simplify
+    // mqttClient.on('reconnect', () => { ... }); 
     // No message handling needed
 }
 
@@ -111,7 +114,7 @@ process.stdin.on('readable', () => {
       if (chunk === '\u0003') { // Ctrl+C
         cleanupAndExit(0);
       }
-      if (chunk === '\n' || chunk === '\r') { // Enter key
+      if (chunk === '\r' || chunk === '\n') { // Enter key
           handleScan(barcodeBuffer.trim());
           barcodeBuffer = '';
       } else {
