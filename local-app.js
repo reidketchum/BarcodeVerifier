@@ -109,15 +109,15 @@ function connectMqtt() {
     });
     mqttClient.on('error', (err) => {
         log(`[MQTT] Connection Error: ${err.message}`);
-        updateMqttStatus('Error');
+        currentMqttStatus = 'Error';
     });
     mqttClient.on('close', () => {
         log(`[MQTT] Client Disconnected.`);
-        updateMqttStatus('Disconnected');
+        currentMqttStatus = 'Disconnected';
     });
     mqttClient.on('offline', () => {
         log(`[MQTT] Client Offline`);
-        updateMqttStatus('Disconnected');
+        currentMqttStatus = 'Disconnected';
     });
 }
 
@@ -365,7 +365,7 @@ function setupTUI() {
     clientIdInput = addSetting('Client ID:', settings.mqttClientId, 'mqttClientId');
     delayInput = addSetting('Reject Delay:', settings.rejectDelay, 'rejectDelay');
     sensorPinInput = addSetting('Sensor Pin:', settings.productSensorPin, 'productSensorPin'); // Add pin settings to UI
-    rejectPinInput = addSetting('Reject Pin:', settings.rejectOutputPin, 'rejectOutputPin'); // Add pin settings to UI
+    rejectPinInput = addSetting('Reject Pin:', settings.rejectOutputPin, 'rejectPin'); // Corrected name for form data
 
     const submitButton = blessed.button({
         parent: settingsForm,
@@ -391,10 +391,10 @@ function setupTUI() {
         settings.mqttBroker = data.mqttBroker || settings.mqttBroker;
         settings.mqttPort = parseInt(data.mqttPort, 10) || settings.mqttPort;
         settings.mqttVerifyTopic = data.mqttVerifyTopic || settings.mqttVerifyTopic;
-        settings.mqttClientId = data.clientId || settings.mqttClientId; // Corrected data key
-        settings.rejectDelay = parseInt(data.rejectDelay, 10) || settings.rejectDelay;
-        settings.productSensorPin = parseInt(data.productSensorPin, 10) || settings.productSensorPin; 
-        settings.rejectOutputPin = parseInt(data.rejectPin, 10) || settings.rejectOutputPin; // Corrected data key
+        settings.mqttClientId = data.clientid || settings.mqttClientId; // Corrected data key
+        settings.rejectDelay = parseInt(data.rejectdelay, 10) || settings.rejectDelay;
+        settings.productSensorPin = parseInt(data.sensorpin, 10) || settings.productSensorPin; // Corrected data key
+        settings.rejectOutputPin = parseInt(data.rejectpin, 10) || settings.rejectOutputPin; // Corrected data key
 
         saveSettings();
         log("[App] Settings saved. Reinitializing GPIO and Reconnecting MQTT...");
@@ -583,7 +583,6 @@ function cleanupAndExit(exitCode = 0) {
     } else {
         mqttClosed = true;
     }
-
     if (process.stdin.isTTY && process.stdin.isRaw) {
         try { 
              process.stdin.setRawMode(false);
